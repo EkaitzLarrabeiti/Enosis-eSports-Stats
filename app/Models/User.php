@@ -20,7 +20,9 @@ class User extends Authenticatable
      */
     protected $fillable = [
         'name',
+        'nickname',
         'email',
+        'role',
         'password',
     ];
 
@@ -46,4 +48,23 @@ class User extends Authenticatable
             'password' => 'hashed',
         ];
     }
+
+    public function iracingAccount()
+    {
+        return $this->hasOne(IracingAccount::class);
+    }
+
+    public function teams()
+{
+    return $this->belongsToMany(Team::class)
+                ->withPivot('role')
+                ->withTimestamps();
+}
+
+public function createdTeams()
+{
+    return $this->hasMany(Team::class, 'created_by');
+}
+
+
 }
