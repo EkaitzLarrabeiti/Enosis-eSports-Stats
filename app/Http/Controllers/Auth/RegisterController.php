@@ -21,7 +21,7 @@ class RegisterController extends Controller
             'name' => 'required|string|max:255',
             'nickname' => 'required|string|max:255',
             'email' => 'required|email|unique:users',
-            'password' => 'required|string|confirmed|min:6',
+            'password' => 'required|string|confirmed|min:8',
         ]);
 
         $user = User::create([
@@ -34,6 +34,6 @@ class RegisterController extends Controller
 
         Auth::login($user);
 
-        return redirect('/dashboard');
+        return redirect()->route('dashboard');
     }
 }

@@ -35,4 +35,14 @@ return [
         ],
     ],
 
+    'iracing' => [
+        'oauth_base_url' => env('IRACING_OAUTH_BASE_URL', 'https://oauth.iracing.com'),
+        'api_base_url' => env('IRACING_API_BASE_URL', 'https://members-ng.iracing.com'),
+        'client_id' => env('IRACING_CLIENT_ID'),
+        'client_secret' => env('IRACING_CLIENT_SECRET'),
+        'redirect_uri' => env('IRACING_REDIRECT_URI'),
+        'server_username' => env('IRACING_SERVER_USERNAME'),
+        'server_password' => env('IRACING_SERVER_PASSWORD'),
+    ],
+
 ];

@@ -29,7 +29,7 @@
                 <input type="email" name="email" id="email" required class="w-full px-3 bg-white/25 py-2 border rounded focus:outline-none focus:ring focus:border-blue-300">
             </div>
             <div>
-                <label for="password" class="block mb-1 font-medium text-white">Contraseña</label>
+                                <label for="password" class="block mb-1 font-medium text-white">Contrasena</label>
                 <input type="password" name="password" id="password" required class="w-full px-3 bg-white/25 py-2 border rounded focus:outline-none focus:ring focus:border-blue-300">
             </div>
             <button type="submit" class="w-full bg-blue-600 text-white py-2 rounded hover:bg-blue-700 transition">Login</button>

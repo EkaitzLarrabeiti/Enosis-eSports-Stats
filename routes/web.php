@@ -1,9 +1,12 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\AdminController;
+use App\Http\Controllers\Auth\IRacingOAuthController;
 use App\Http\Controllers\Auth\LoginController;
 use App\Http\Controllers\Auth\RegisterController;
-use App\Http\Controllers\IracingController;
+use App\Http\Controllers\DriverController;
+use App\Http\Controllers\ManagerController;
 
 Route::get('/', function () {
     return view('welcome');
@@ -12,15 +15,43 @@ Route::get('/', function () {
 Route::get('/login', [LoginController::class, 'showLoginForm'])->name('login');
 Route::post('/login', [LoginController::class, 'login']);
 Route::post('/logout', [LoginController::class, 'logout'])->name('logout');
-
 Route::get('/register', [RegisterController::class, 'showRegistrationForm'])->name('register');
 Route::post('/register', [RegisterController::class, 'register']);
 
-Route::get('/dashboard', function () {
-    return view('dashboard');
-})->middleware('auth');
+Route::middleware(['auth', 'role:driver'])->group(function () {
+    Route::get('/auth/iracing/redirect', [IRacingOAuthController::class, 'redirect'])->name('iracing.oauth.redirect');
+    Route::get('/auth/iracing/callback', [IRacingOAuthController::class, 'callback'])->name('iracing.oauth.callback');
+});
 
-Route::middleware('auth')->group(function () {
-    Route::get('/iracing/link', [IracingController::class, 'showLinkPage'])->name('iracing.link');
-    Route::post('/iracing/link', [IracingController::class, 'linkAccount'])->name('iracing.link.submit');
+Route::get('/dashboard', function () {
+    $user = auth()->user();
+
+    if (! $user) {
+        return redirect()->route('login');
+    }
+
+    if ($user->role === 'driver') {
+        return redirect()->route('driver.profile');
+    }
+
+    if ($user->role === 'admin') {
+        return redirect()->route('admin.dashboard');
+    }
+
+    return redirect()->route('manager.dashboard');
+})->name('dashboard')->middleware('auth');
+
+Route::middleware(['auth', 'iracing.refresh', 'role:driver'])->group(function () {
+    Route::get('/driver/profile', [DriverController::class, 'profile'])->name('driver.profile');
+});
+
+Route::middleware(['auth', 'role:manager,admin'])->group(function () {
+    Route::get('/manager/dashboard', [ManagerController::class, 'dashboard'])->name('manager.dashboard');
+    Route::get('/manager/leaderboard', [ManagerController::class, 'leaderboard'])->name('manager.leaderboard');
+    Route::get('/manager/calendar', [ManagerController::class, 'calendar'])->name('manager.calendar');
+});
+
+Route::middleware(['auth', 'role:admin'])->group(function () {
+    Route::get('/admin/dashboard', [AdminController::class, 'dashboard'])->name('admin.dashboard');
+    Route::post('/admin/managers', [AdminController::class, 'createManager'])->name('admin.managers.create');
 });
