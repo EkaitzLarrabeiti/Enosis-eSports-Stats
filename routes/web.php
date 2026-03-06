@@ -7,10 +7,24 @@ use App\Http\Controllers\Auth\LoginController;
 use App\Http\Controllers\Auth\RegisterController;
 use App\Http\Controllers\DriverController;
 use App\Http\Controllers\ManagerController;
+use App\Models\RaceResult;
 
 Route::get('/', function () {
-    return view('welcome');
+    return view('enosis-landing');
 });
+
+Route::get('/calendar', function () {
+    $upcoming = RaceResult::query()
+        ->whereNotNull('race_date')
+        ->where('race_date', '>=', now())
+        ->orderBy('race_date')
+        ->limit(20)
+        ->get();
+
+    return view('calendar', [
+        'upcoming' => $upcoming,
+    ]);
+})->name('calendar');
 
 Route::get('/login', [LoginController::class, 'showLoginForm'])->name('login');
 Route::post('/login', [LoginController::class, 'login']);
