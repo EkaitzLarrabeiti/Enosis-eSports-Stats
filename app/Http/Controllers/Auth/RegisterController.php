@@ -17,22 +17,25 @@ class RegisterController extends Controller
 
     public function register(Request $request)
     {
-        $request->validate([
-            'name' => 'required|string|max:255',
-            'nickname' => 'required|string|max:255',
-            'email' => 'required|email|unique:users',
-            'password' => 'required|string|confirmed|min:8',
+        $validated = $request->validate([
+            'name' => ['required', 'string', 'max:255'],
+            'nickname' => ['required', 'string', 'max:255'],
+            'email' => ['required', 'email', 'max:255', 'unique:users,email'],
+            'password' => ['required', 'string', 'confirmed', 'min:8'],
+        ], [
+            'password.min' => 'La contraseña debe de tener como mínimo 8 caracteres',
         ]);
 
         $user = User::create([
-            'name' => $request->name,
-            'nickname' => $request->nickname,
-            'email' => $request->email,
-            'password' => Hash::make($request->password),
+            'name' => $validated['name'],
+            'nickname' => $validated['nickname'],
+            'email' => $validated['email'],
+            'password' => Hash::make($validated['password']),
             'role' => 'driver', // por defecto
         ]);
 
         Auth::login($user);
+        $request->session()->regenerate();
 
         return redirect()->route('dashboard');
     }

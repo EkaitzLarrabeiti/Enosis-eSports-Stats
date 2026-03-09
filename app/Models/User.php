@@ -32,6 +32,7 @@ class User extends Authenticatable
         'token_expires_at',
         'iracing_linked',
         'password',
+        'last_login_at',
     ];
 
     /**
@@ -56,6 +57,7 @@ class User extends Authenticatable
             'password' => 'hashed',
             'token_expires_at' => 'datetime',
             'iracing_linked' => 'boolean',
+            'last_login_at' => 'datetime',
         ];
     }
 

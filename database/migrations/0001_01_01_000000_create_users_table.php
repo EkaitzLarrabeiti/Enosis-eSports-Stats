@@ -20,6 +20,7 @@ return new class extends Migration
             $table->string('role')->default('driver');
             $table->string('password');
             $table->rememberToken();
+            $table->timestamp('last_login_at')->nullable();
             $table->timestamps();
         });
 

@@ -21,22 +21,34 @@ class IRacingOAuthController extends Controller
         }
 
         $state = Str::random(40);
+        $codeVerifier = $this->iracingApiService->createPkceCodeVerifier();
+        $codeChallenge = $this->iracingApiService->createPkceCodeChallenge($codeVerifier);
+
         $request->session()->put('iracing_oauth_state', $state);
+        $request->session()->put('iracing_oauth_code_verifier', $codeVerifier);
 
         try {
-            $url = $this->iracingApiService->buildAuthorizationUrl();
-            $separator = str_contains($url, '?') ? '&' : '?';
+            $url = $this->iracingApiService->buildAuthorizationUrl($state, $codeChallenge, 'S256');
 
-            return redirect()->away($url.$separator.http_build_query(['state' => $state]));
+            return redirect()->away($url);
         } catch (RuntimeException $exception) {
             return redirect()->route('driver.profile')->withErrors([
-                'oauth' => 'OAuth de iRacing no está configurado en .env.',
+                'oauth' => 'OAuth de iRacing no esta configurado en .env.',
             ]);
         }
     }
 
     public function callback(Request $request)
     {
+        if ($request->filled('error')) {
+            $description = $request->string('error_description')->toString();
+            $message = $description !== '' ? $description : 'iRacing devolvio un error de OAuth.';
+
+            return redirect()->route('driver.profile')->withErrors([
+                'oauth' => $message,
+            ]);
+        }
+
         $request->validate([
             'code' => ['required', 'string'],
             'state' => ['required', 'string'],
@@ -47,18 +59,26 @@ class IRacingOAuthController extends Controller
         }
 
         $state = (string) $request->session()->pull('iracing_oauth_state', '');
+        $codeVerifier = (string) $request->session()->pull('iracing_oauth_code_verifier', '');
+
         if (! hash_equals($state, $request->string('state')->toString())) {
             return redirect()->route('driver.profile')->withErrors([
-                'oauth' => 'El estado OAuth no es válido.',
+                'oauth' => 'El estado OAuth no es valido.',
+            ]);
+        }
+
+        if ($codeVerifier === '') {
+            return redirect()->route('driver.profile')->withErrors([
+                'oauth' => 'No se encontro el PKCE verifier en la sesion.',
             ]);
         }
 
         try {
-            $tokenPayload = $this->iracingApiService->exchangeCodeForToken($request->string('code')->toString());
+            $tokenPayload = $this->iracingApiService->exchangeCodeForToken($request->string('code')->toString(), $codeVerifier);
             $memberInfo = $this->iracingApiService->getWithBearerToken('data/member/info', $tokenPayload['access_token']);
         } catch (RuntimeException $exception) {
             return redirect()->route('driver.profile')->withErrors([
-                'oauth' => 'No se pudo completar la vinculación OAuth de iRacing.',
+                'oauth' => 'No se pudo completar la vinculacion OAuth de iRacing.',
             ]);
         }
 
@@ -67,7 +87,7 @@ class IRacingOAuthController extends Controller
 
         if ($custId === '') {
             return redirect()->route('driver.profile')->withErrors([
-                'oauth' => 'iRacing no devolvió un cust_id válido.',
+                'oauth' => 'iRacing no devolvio un cust_id valido.',
             ]);
         }
 

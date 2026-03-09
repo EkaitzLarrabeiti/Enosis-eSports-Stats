@@ -6,7 +6,7 @@
 
 @section('content')
     <div class="bg-black/50 backdrop-blur-sm p-8 border border-gray-800/30 rounded-xl shadow-lg w-full max-w-md relative z-10">
-        <h1 class="text-2xl font-bold mb-6 text-center text-white">Enosis eSports Stats</h1>
+        <h1 class="text-2xl font-bold mb-6 text-center text-white">Registro</h1>
 
         @if($errors->any())
             <div class="bg-red-100 text-red-700 p-2 mb-4 rounded">
@@ -18,23 +18,38 @@
             @csrf
             <div>
                 <label for="name" class="block mb-1 font-medium text-white">Nombre</label>
-                <input type="text" name="name" id="name" required class="w-full px-3 bg-white/25 py-2 border rounded focus:outline-none focus:ring focus:border-blue-300">
+                <input type="text" placeholder="John" name="name" id="name" value="{{ old('name') }}" required class="w-full px-3 bg-white/25 py-2 border rounded focus:outline-none focus:ring focus:border-blue-300">
+                @error('name')
+                    <p class="mt-1 text-sm text-red-400">{{ $message }}</p>
+                @enderror
             </div>
             <div>
                 <label for="nickname" class="block mb-1 font-medium text-white">Nickname</label>
-                <input type="text" name="nickname" id="nickname" required class="w-full px-3 bg-white/25 py-2 border rounded focus:outline-none focus:ring focus:border-blue-300">
+                <input type="text" placeholder="JohnieRacer_" name="nickname" id="nickname" value="{{ old('nickname') }}" required class="w-full px-3 bg-white/25 py-2 border rounded focus:outline-none focus:ring focus:border-blue-300">
+                @error('nickname')
+                    <p class="mt-1 text-sm text-red-400">{{ $message }}</p>
+                @enderror
             </div>
             <div>
                 <label for="email" class="block mb-1 font-medium text-white">Correo</label>
-                <input type="email" name="email" id="email" required class="w-full px-3 bg-white/25 py-2 border rounded focus:outline-none focus:ring focus:border-blue-300">
+                <input type="email" placeholder="JohnMcAllison@gmail.com" name="email" id="email" value="{{ old('email') }}" required class="w-full px-3 bg-white/25 py-2 border rounded focus:outline-none focus:ring focus:border-blue-300">
+                @error('email')
+                    <p class="mt-1 text-sm text-red-400">{{ $message }}</p>
+                @enderror
             </div>
             <div>
                 <label for="password" class="block mb-1 font-medium text-white">Contrasena</label>
                 <input type="password" name="password" id="password" required class="w-full px-3 bg-white/25 py-2 border rounded focus:outline-none focus:ring focus:border-blue-300">
+                @error('password')
+                    <p class="mt-1 text-sm text-red-400">{{ $message }}</p>
+                @enderror
             </div>
             <div>
                 <label for="password_confirmation" class="block mb-1 font-medium text-white">Confirmar contrasena</label>
                 <input type="password" name="password_confirmation" id="password_confirmation" required class="w-full px-3 bg-white/25 py-2 border rounded focus:outline-none focus:ring focus:border-blue-300">
+                @error('password_confirmation')
+                    <p class="mt-1 text-sm text-red-400">{{ $message }}</p>
+                @enderror
             </div>
             <button type="submit" class="w-full bg-blue-600 text-white py-2 rounded hover:bg-blue-700 transition">Crear</button>
         </form>
