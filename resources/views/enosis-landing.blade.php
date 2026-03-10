@@ -6,16 +6,16 @@
     <title>Inicio | Enosis eSports</title>
     @vite('resources/css/landing.css')
     <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="icon" href="/favicon.ico">
+    <link rel="icon" href="{{ asset('favicon.ico') }}">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Barlow+Condensed:wght@300;400;600;700;900&family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/ScrollTrigger.min.js"></script>
 
 </head>
-<body>
+<body class="landing-body">
 
-  @include('layouts.partials.header')
+@include('layouts.partials.header')
 
   <div class="cursor" id="cursor"></div>
   <div class="cursor-ring" id="cursorRing"></div>
@@ -29,7 +29,7 @@
 
     <div class="telem-bar">
       <span class="live-dot"></span>
-      <span>SYS_ONLINE</span>
+      <span>TELEMETRÍA: ACTIVA</span>
       <span>VUELTA RÁPIDA: <span class="telem-val" id="lapTime">1:32.847</span></span>
       <span>SECTOR: <span class="telem-val">S3</span></span>
       <span>RPM: <span class="telem-val" id="rpmVal">12840</span></span>
@@ -219,16 +219,8 @@
   </section>
 
   <!-- ══════════════════════════ FOOTER ══════════════════════════ -->
-  <footer>
-    <div class="footer-brand">ENOSIS <span>eSports</span></div>
-    <div class="footer-meta">© 2026 ENOSIS ESPORTS — ALL RIGHTS RESERVED</div>
-    <div class="footer-socials">
 
-      <a href="https://x.com/e_enosis"><img src="{{ asset('img/socials/twitter.png') }}" alt="X"></a>
-      <a href="https://www.tiktok.com/@enosisesports"><img src="{{ asset('img/socials/tiktok.png') }}" alt="TIKTOK"></a>
-      <a href="https://www.instagram.com/enosisesports/"><img src="{{ asset('img/socials/instagram.png') }}" alt="INSTAGRAM"></a>
-    </div>
-  </footer>
+    @include('layouts.partials.footer')
 
   <script>
     /* ── Cursor ── */

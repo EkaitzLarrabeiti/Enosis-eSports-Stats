@@ -1,7 +1,6 @@
 @extends('layouts.app')
 
 @section('title', 'Registro | Enosis eSports')
-@section('hideHeader', true)
 @section('mainClass', 'w-full min-h-screen flex items-center justify-center p-4')
 
 @section('content')

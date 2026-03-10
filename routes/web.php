@@ -38,6 +38,7 @@ Route::post('/logout', [LoginController::class, 'logout'])->name('logout')->midd
 Route::middleware(['auth', 'role:driver'])->group(function () {
     Route::get('/auth/iracing/redirect', [IRacingOAuthController::class, 'redirect'])->name('iracing.oauth.redirect');
     Route::get('/auth/iracing/callback', [IRacingOAuthController::class, 'callback'])->name('iracing.oauth.callback');
+    Route::post('/auth/iracing/unlink', [IRacingOAuthController::class, 'unlink'])->name('iracing.oauth.unlink');
 });
 
 Route::get('/dashboard', function () {

@@ -216,7 +216,10 @@ class IRacingApiService
     private function decodeResponse(Response $response): array
     {
         if (! $response->successful()) {
-            throw new RuntimeException('iRacing request failed with status '.$response->status());
+            $body = $response->body();
+            $summary = $body !== '' ? substr($body, 0, 500) : 'empty response body';
+
+            throw new RuntimeException('iRacing request failed with status '.$response->status().'. Response: '.$summary);
         }
 
         $json = $response->json();
@@ -236,7 +239,7 @@ class IRacingApiService
             return $payload;
         }
 
-        $response = Http::withToken($accessToken)->get($signedUrl);
+        $response = Http::get($signedUrl);
 
         return $this->decodeResponse($response);
     }

@@ -18,6 +18,17 @@
       font-family: 'Barlow Condensed', sans-serif;
       overflow-x: hidden;
     }
+    .landing-body header {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 1000;
+      background-color: rgba(0, 0, 0, 0.18);
+      border-color: rgba(255, 255, 255, 0.08);
+      backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px);
+    }
 
     /* ─────────────────────────────────────────────
        HERO
@@ -28,7 +39,7 @@
       display: flex;
       flex-direction: column;
       justify-content: center;
-      padding: 0 6vw;
+      padding: 96px 6vw 0;
       overflow: hidden;
     }
 

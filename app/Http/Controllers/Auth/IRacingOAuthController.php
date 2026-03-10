@@ -77,8 +77,15 @@ class IRacingOAuthController extends Controller
             $tokenPayload = $this->iracingApiService->exchangeCodeForToken($request->string('code')->toString(), $codeVerifier);
             $memberInfo = $this->iracingApiService->getWithBearerToken('data/member/info', $tokenPayload['access_token']);
         } catch (RuntimeException $exception) {
+            report($exception);
+
+            $message = 'No se pudo completar la vinculacion OAuth de iRacing.';
+            if (config('app.debug')) {
+                $message .= ' Detalle: '.$exception->getMessage();
+            }
+
             return redirect()->route('driver.profile')->withErrors([
-                'oauth' => 'No se pudo completar la vinculacion OAuth de iRacing.',
+                'oauth' => $message,
             ]);
         }
 
@@ -103,5 +110,22 @@ class IRacingOAuthController extends Controller
         ])->save();
 
         return redirect()->route('driver.profile')->with('status', 'Cuenta de iRacing vinculada correctamente.');
+    }
+
+    public function unlink(Request $request)
+    {
+        if (! $request->user() || $request->user()->role !== 'driver') {
+            abort(403);
+        }
+
+        $request->user()->forceFill([
+            'iracing_linked' => false,
+            'iracing_customer_id' => null,
+            'access_token' => null,
+            'refresh_token' => null,
+            'token_expires_at' => null,
+        ])->save();
+
+        return redirect()->route('driver.profile')->with('status', 'Cuenta de iRacing desvinculada.');
     }
 }

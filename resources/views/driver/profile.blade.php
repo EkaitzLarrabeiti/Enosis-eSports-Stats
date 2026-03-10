@@ -29,8 +29,24 @@
         $wins = (int) data_get($stats, 'wins', 0);
         $podiums = (int) data_get($stats, 'podiums', 0);
         $poles = (int) data_get($stats, 'poles', 0);
-        $currentIRating = (int) data_get($stats, 'irating', 0);
-        $safetyRating = (string) data_get($stats, 'safety_rating', '-');
+        $licenseRatings = (array) data_get($stats, 'licenses', []);
+        $sportsCar = (array) data_get($licenseRatings, 'sports_car', []);
+        $formulaCar = (array) data_get($licenseRatings, 'formula_car', []);
+        $oval = (array) data_get($licenseRatings, 'oval', []);
+        $dirtRoad = (array) data_get($licenseRatings, 'dirt_road', []);
+        $dirtOval = (array) data_get($licenseRatings, 'dirt_oval', []);
+        $sportsCarIr = (int) data_get($sportsCar, 'ir', 0);
+        $sportsCarSr = (string) data_get($sportsCar, 'sr', '-');
+        $formulaCarIr = (int) data_get($formulaCar, 'ir', 0);
+        $formulaCarSr = (string) data_get($formulaCar, 'sr', '-');
+        $ovalIr = (int) data_get($oval, 'ir', 0);
+        $ovalSr = (string) data_get($oval, 'sr', '-');
+        $dirtRoadIr = (int) data_get($dirtRoad, 'ir', 0);
+        $dirtRoadSr = (string) data_get($dirtRoad, 'sr', '-');
+        $dirtOvalIr = (int) data_get($dirtOval, 'ir', 0);
+        $dirtOvalSr = (string) data_get($dirtOval, 'sr', '-');
+        $currentIRating = (int) (data_get($sportsCar, 'ir') ?? data_get($formulaCar, 'ir') ?? data_get($oval, 'ir') ?? data_get($stats, 'irating', 0));
+        $safetyRating = (string) (data_get($sportsCar, 'sr') ?? data_get($formulaCar, 'sr') ?? data_get($oval, 'sr') ?? data_get($stats, 'safety_rating', '-'));
         $top5Count = $results->filter(fn ($race) => (int) ($race->finish_position ?? 999) <= 5)->count();
         $winRate = $totalRaces > 0 ? round(($wins / $totalRaces) * 100, 1) : 0;
         $top5Rate = $totalRaces > 0 ? round(($top5Count / $totalRaces) * 100, 1) : 0;
@@ -44,43 +60,96 @@
         $lastSyncedValue = data_get($stats, 'last_synced_at');
         $lastSynced = optional($lastSyncedValue)->format('d/m/Y H:i');
 
-        $changes = $results
-            ->sortBy('race_date')
-            ->pluck('irating_change')
-            ->map(fn ($value) => (int) ($value ?? 0))
-            ->values();
-
-        if ($changes->isEmpty()) {
-            $historyValues = collect([$currentIRating > 0 ? $currentIRating : 1500]);
-        } else {
-            $base = ($currentIRating > 0 ? $currentIRating : 1500) - $changes->sum();
-            $running = $base;
-            $historyValues = collect([$running]);
-
-            foreach ($changes as $change) {
-                $running += $change;
-                $historyValues->push($running);
-            }
-        }
-
-        $chartValues = $historyValues->values()->all();
-        $chartCount = count($chartValues);
-        $chartMin = $chartCount > 0 ? min($chartValues) : 0;
-        $chartMax = $chartCount > 0 ? max($chartValues) : 1;
-        $chartRange = max(1, $chartMax - $chartMin);
         $chartWidth = 1000;
         $chartHeight = 220;
+        $chartSource = $chartResults ?? $results;
 
-        $points = [];
-        foreach ($chartValues as $index => $value) {
-            $x = $chartCount > 1 ? ($index / ($chartCount - 1)) * $chartWidth : 0;
-            $normalized = ($value - $chartMin) / $chartRange;
-            $y = $chartHeight - ($normalized * $chartHeight);
-            $points[] = round($x, 2).','.round($y, 2);
-        }
+        $buildChart = function ($collection) use ($chartWidth, $chartHeight) {
+            $collection = $collection->filter(fn ($race) => $race->race_date)->sortBy('race_date')->values();
+            $latestRating = (int) ($collection->last()?->newi_rating ?? 0);
 
-        $chartPoints = implode(' ', $points);
-        $chartArea = $chartCount > 0 ? $chartPoints.' '.$chartWidth.','.$chartHeight.' 0,'.$chartHeight : '';
+            $changes = $collection
+                ->pluck('irating_change')
+                ->map(fn ($value) => (int) ($value ?? 0))
+                ->values();
+
+            if ($changes->isEmpty()) {
+                $historyValues = collect([$latestRating > 0 ? $latestRating : 1500]);
+            } else {
+                $base = ($latestRating > 0 ? $latestRating : 1500) - $changes->sum();
+                $running = $base;
+                $historyValues = collect([$running]);
+
+                foreach ($changes as $change) {
+                    $running += $change;
+                    $historyValues->push($running);
+                }
+            }
+
+            $chartValues = $historyValues->values()->all();
+            $chartCount = count($chartValues);
+            $chartMin = $chartCount > 0 ? min($chartValues) : 0;
+            $chartMax = $chartCount > 0 ? max($chartValues) : 1;
+            $chartRange = max(1, $chartMax - $chartMin);
+
+            $points = [];
+            foreach ($chartValues as $index => $value) {
+                $x = $chartCount > 1 ? ($index / ($chartCount - 1)) * $chartWidth : 0;
+                $normalized = ($value - $chartMin) / $chartRange;
+                $y = $chartHeight - ($normalized * $chartHeight);
+                $points[] = round($x, 2).','.round($y, 2);
+            }
+
+            $chartPoints = implode(' ', $points);
+            $chartArea = $chartCount > 0 ? $chartPoints.' '.$chartWidth.','.$chartHeight.' 0,'.$chartHeight : '';
+
+            $startDate = $collection->first()?->race_date;
+            $endDate = $collection->last()?->race_date;
+            $midDate = null;
+            if ($collection->count() > 2) {
+                $midDate = $collection->get((int) floor($collection->count() / 2))?->race_date;
+            }
+
+            return [
+                'points' => $chartPoints,
+                'area' => $chartArea,
+                'count' => $chartCount,
+                'x_start' => $startDate ? $startDate->format('d M') : '-',
+                'x_mid' => $midDate ? $midDate->format('d M') : '-',
+                'x_end' => $endDate ? $endDate->format('d M') : '-',
+                'y_min' => (int) $chartMin,
+                'y_mid' => (int) round(($chartMin + $chartMax) / 2),
+                'y_max' => (int) $chartMax,
+            ];
+        };
+
+        $sportsCarResults = $chartSource->where('license_key', 'sports_car');
+        $formulaCarResults = $chartSource->where('license_key', 'formula_car');
+        $ovalResults = $chartSource->where('license_key', 'oval');
+        $dirtRoadResults = $chartSource->where('license_key', 'dirt_road');
+        $dirtOvalResults = $chartSource->where('license_key', 'dirt_oval');
+        $roadResults = $chartSource->where('license_key', 'road');
+
+        $chartSeries = [
+            'sports_car' => $buildChart($sportsCarResults->isEmpty() ? $chartSource : $sportsCarResults),
+            'formula_car' => $buildChart($formulaCarResults->isEmpty() ? $chartSource : $formulaCarResults),
+            'oval' => $buildChart($ovalResults->isEmpty() ? $chartSource : $ovalResults),
+            'dirt_road' => $buildChart($dirtRoadResults->isEmpty() ? $chartSource : $dirtRoadResults),
+            'dirt_oval' => $buildChart($dirtOvalResults->isEmpty() ? $chartSource : $dirtOvalResults),
+            'road' => $buildChart($roadResults->isEmpty() ? $chartSource : $roadResults),
+        ];
+
+        $activeSeries = 'sports_car';
+        $activeChart = $chartSeries[$activeSeries];
+        $chartPoints = $activeChart['points'];
+        $chartArea = $activeChart['area'];
+        $chartCount = $activeChart['count'];
+        $chartXStart = $activeChart['x_start'];
+        $chartXMid = $activeChart['x_mid'];
+        $chartXEnd = $activeChart['x_end'];
+        $chartYMin = $activeChart['y_min'];
+        $chartYMid = $activeChart['y_mid'];
+        $chartYMax = $activeChart['y_max'];
     @endphp
     <div class="driver-profile space-y-5">
 
@@ -88,11 +157,15 @@
         <section class="bg-green-700/80 border border-green-500 rounded-lg p-3 text-sm">{{ session('status') }}</section>
     @endif
 
-    @if($errors->any())
-        <section class="bg-red-700/80 border border-red-500 rounded-lg p-3 text-sm">{{ $errors->first() }}</section>
-    @endif
+@if($errors->any())
+    <section class="bg-red-700/80 border border-red-500 rounded-lg p-3 text-sm">{{ $errors->first() }}</section>
+@endif
 
-    <section class="rounded-2xl border border-[#7a0007]/60 bg-[#000000]/85 p-4 md:p-6 shadow-lg">
+@if(!empty($iracingNotice))
+    <section class="bg-amber-700/70 border border-amber-500 rounded-lg p-3 text-sm">{{ $iracingNotice }}</section>
+@endif
+
+<section class="rounded-2xl border border-[#7a0007]/60 bg-[#000000]/75 p-4 md:p-6 shadow-lg">
         <div class="grid gap-5 lg:grid-cols-12">
             <div class="lg:col-span-7 space-y-4 text-center sm:text-left">
                 <div class="flex flex-col items-center sm:flex-row sm:items-center gap-4">
@@ -126,11 +199,17 @@
                         <span class="w-full sm:w-auto inline-flex items-center justify-center px-4 py-2 rounded-lg border border-emerald-500/50 bg-emerald-500/10 text-emerald-300 text-sm font-semibold">
                             Cuenta vinculada
                         </span>
+                        <form action="{{ route('iracing.oauth.unlink') }}" method="POST" class="w-full sm:w-auto">
+                            @csrf
+                            <button type="submit" class="w-full px-4 py-2 rounded-lg border border-red-500/60 text-red-300 hover:bg-red-600/20 text-sm font-semibold">
+                                Desvincular
+                            </button>
+                        </form>
                     @endif
 
                     <form action="{{ route('logout') }}" method="POST" class="w-full sm:w-auto">
                         @csrf
-                        <button type="submit" class="w-full px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-sm font-semibold">Logout</button>
+                        <button type="submit" class="w-full px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-sm font-semibold">Cerrar sesión</button>
                     </form>
                 </div>
             </div>
@@ -138,43 +217,43 @@
             <div class="lg:col-span-5 rounded-xl border border-zinc-700/50 bg-[#101010]/85 p-3 text-center sm:text-left">
                 <div class="mb-3">
                     <p class="text-lg font-bold text-white">{{ $user->name }}</p>
-                    <p class="text-xs text-zinc-400">{{ $user->iracing_customer_id ? '#'.$user->iracing_customer_id : 'No customer id yet' }}</p>
+                    <p class="text-xs text-zinc-400">{{ $user->iracing_customer_id ? '#'.$user->iracing_customer_id : 'No hay id de cliente' }}</p>
                 </div>
 
                 <div class="grid grid-cols-2 gap-2 text-xs">
                     <div class="rounded-lg border border-[#7a0007]/80 bg-zinc-900/80 p-2">
                         <p class="text-zinc-400">Sports Car</p>
                         <div class="mt-1 flex items-center justify-center sm:justify-start gap-2">
-                            <span class="rounded border border-red-500 px-1.5 py-0.5 text-red-300">R {{ $safetyRating }}</span>
-                            <span class="rounded border border-[#e8000d] px-1.5 py-0.5 text-[#e8000d]">{{ $currentIRating > 0 ? number_format($currentIRating) : '-' }} iR</span>
+                            <span class="rounded border border-red-500 px-1.5 py-0.5 text-red-300">R {{ $sportsCarSr }}</span>
+                            <span class="rounded border border-[#e8000d] px-1.5 py-0.5 text-[#e8000d]">{{ $sportsCarIr > 0 ? number_format($sportsCarIr) : '-' }} iR</span>
                         </div>
                     </div>
                     <div class="rounded-lg border border-[#7a0007]/80 bg-zinc-900/80 p-2">
                         <p class="text-zinc-400">Formula Car</p>
                         <div class="mt-1 flex items-center justify-center sm:justify-start gap-2">
-                            <span class="rounded border border-blue-500 px-1.5 py-0.5 text-blue-300">A {{ $safetyRating }}</span>
-                            <span class="rounded border border-[#e8000d] px-1.5 py-0.5 text-[#e8000d]">{{ $currentIRating > 0 ? number_format($currentIRating) : '-' }} iR</span>
+                            <span class="rounded border border-blue-500 px-1.5 py-0.5 text-blue-300">A {{ $formulaCarSr }}</span>
+                            <span class="rounded border border-[#e8000d] px-1.5 py-0.5 text-[#e8000d]">{{ $formulaCarIr > 0 ? number_format($formulaCarIr) : '-' }} iR</span>
                         </div>
                     </div>
                     <div class="rounded-lg border border-[#7a0007]/80 bg-zinc-900/80 p-2">
                         <p class="text-zinc-400">Oval</p>
                         <div class="mt-1 flex items-center justify-center sm:justify-start gap-2">
-                            <span class="rounded border border-red-500 px-1.5 py-0.5 text-red-300">R {{ $safetyRating }}</span>
-                            <span class="rounded border border-[#e8000d] px-1.5 py-0.5 text-[#e8000d]">{{ $currentIRating > 0 ? number_format($currentIRating) : '-' }} iR</span>
+                            <span class="rounded border border-red-500 px-1.5 py-0.5 text-red-300">R {{ $ovalSr }}</span>
+                            <span class="rounded border border-[#e8000d] px-1.5 py-0.5 text-[#e8000d]">{{ $ovalIr > 0 ? number_format($ovalIr) : '-' }} iR</span>
                         </div>
                     </div>
                     <div class="rounded-lg border border-[#7a0007]/80 bg-zinc-900/80 p-2">
                         <p class="text-zinc-400">Dirt Road</p>
                         <div class="mt-1 flex items-center justify-center sm:justify-start gap-2">
-                            <span class="rounded border border-red-500 px-1.5 py-0.5 text-red-300">R {{ $safetyRating }}</span>
-                            <span class="rounded border border-[#e8000d] px-1.5 py-0.5 text-[#e8000d]">{{ $currentIRating > 0 ? number_format($currentIRating) : '-' }} iR</span>
+                            <span class="rounded border border-red-500 px-1.5 py-0.5 text-red-300">R {{ $dirtRoadSr }}</span>
+                            <span class="rounded border border-[#e8000d] px-1.5 py-0.5 text-[#e8000d]">{{ $dirtRoadIr > 0 ? number_format($dirtRoadIr) : '-' }} iR</span>
                         </div>
                     </div>
                     <div class="rounded-lg border border-[#7a0007]/80 bg-zinc-900/80 p-2">
                         <p class="text-zinc-400">Dirt Oval</p>
                         <div class="mt-1 flex items-center justify-center sm:justify-start gap-2">
-                            <span class="rounded border border-red-500 px-1.5 py-0.5 text-red-300">R {{ $safetyRating }}</span>
-                            <span class="rounded border border-[#e8000d] px-1.5 py-0.5 text-[#e8000d]">{{ $currentIRating > 0 ? number_format($currentIRating) : '-' }} iR</span>
+                            <span class="rounded border border-red-500 px-1.5 py-0.5 text-red-300">R {{ $dirtOvalSr }}</span>
+                            <span class="rounded border border-[#e8000d] px-1.5 py-0.5 text-[#e8000d]">{{ $dirtOvalIr > 0 ? number_format($dirtOvalIr) : '-' }} iR</span>
                         </div>
                     </div>
                 </div>
@@ -184,39 +263,107 @@
         </div>
     </section>
 
-    <section class="rounded-2xl border border-zinc-700/60 bg-[#000000]/85 p-4 md:p-6 shadow-lg">
+    <section class="rounded-2xl border border-zinc-700/60 bg-[#000000]/75 p-4 md:p-6 shadow-lg">
         <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
-            <h2 class="text-xl font-bold text-[#e8000d]">Historial de rendimiento</h2>
+            <h2 class="text-xl font-bold text-[#e8000d]">Historial de iRating</h2>
             <div class="flex flex-wrap gap-2 text-[11px] uppercase tracking-wide">
-                <span class="rounded-full border border-[#e8000d]/80 bg-[#7a0007]/25 px-3 py-1 text-[#e8000d]">Sports Car</span>
-                <span class="rounded-full border border-zinc-600 px-3 py-1 text-zinc-400">Formula Car</span>
-                <span class="rounded-full border border-zinc-600 px-3 py-1 text-zinc-400">Oval</span>
-                <span class="rounded-full border border-zinc-600 px-3 py-1 text-zinc-400">Dirt Oval</span>
-                <span class="rounded-full border border-zinc-600 px-3 py-1 text-zinc-400">Dirt Road</span>
+                <button type="button" data-series-btn="sports_car" class="rounded-full border border-[#e8000d]/80 bg-[#7a0007]/25 px-3 py-1 text-[#e8000d]">Sports Car</button>
+                <button type="button" data-series-btn="formula_car" class="rounded-full border border-zinc-600 px-3 py-1 text-zinc-400">Formula Car</button>
+                <button type="button" data-series-btn="oval" class="rounded-full border border-zinc-600 px-3 py-1 text-zinc-400">Oval</button>
+                <button type="button" data-series-btn="dirt_oval" class="rounded-full border border-zinc-600 px-3 py-1 text-zinc-400">Dirt Oval</button>
+                <button type="button" data-series-btn="dirt_road" class="rounded-full border border-zinc-600 px-3 py-1 text-zinc-400">Dirt Road</button>
+                <button type="button" data-series-btn="road" class="rounded-full border border-zinc-600 px-3 py-1 text-zinc-400">Road (Retirado)</button>
             </div>
         </div>
 
-        <div class="rounded-xl border border-zinc-700/50 bg-[#101010]/85 p-3">
-            @if($chartCount > 1)
-                <svg viewBox="0 0 1000 220" class="h-64 w-full">
-                    <defs>
-                        <linearGradient id="historyFill" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="0%" stop-color="#e8000d" stop-opacity="0.35"/>
-                            <stop offset="100%" stop-color="#7a0007" stop-opacity="0"/>
-                        </linearGradient>
-                    </defs>
-                    <rect x="0" y="0" width="1000" height="220" fill="#101010"/>
-                    <path d="M {{ $chartArea }}" fill="url(#historyFill)"></path>
-                    <polyline points="{{ $chartPoints }}" fill="none" stroke="#e8000d" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"></polyline>
-                </svg>
-            @else
-                <div class="flex h-64 items-center justify-center text-zinc-400">No hay suficientes carreras para mostrar historial.</div>
-            @endif
+        <div id="performanceChart" data-series='@json($chartSeries)' class="rounded-xl border border-zinc-700/50 bg-[#101010]/85 p-3">
+            <div class="grid grid-cols-[64px_1fr] gap-3">
+                <div class="flex flex-col justify-between text-xs text-zinc-400 py-2">
+                    <span id="historyYMax">{{ $chartYMax }}</span>
+                    <span id="historyYMid">{{ $chartYMid }}</span>
+                    <span id="historyYMin">{{ $chartYMin }}</span>
+                </div>
+                <div>
+                    <svg id="historySvg" viewBox="0 0 1000 220" class="h-64 w-full {{ $chartCount > 1 ? '' : 'hidden' }}">
+                        <defs>
+                            <linearGradient id="historyFill" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="0%" stop-color="#e8000d" stop-opacity="0.35"/>
+                                <stop offset="100%" stop-color="#7a0007" stop-opacity="0"/>
+                            </linearGradient>
+                        </defs>
+                        <rect x="0" y="0" width="1000" height="220" fill="#101010"/>
+                        <path id="historyArea" d="M {{ $chartArea }}" fill="url(#historyFill)"></path>
+                        <polyline id="historyLine" points="{{ $chartPoints }}" fill="none" stroke="#e8000d" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"></polyline>
+                    </svg>
+                    <div id="historyEmpty" class="flex h-64 items-center justify-center text-zinc-400 {{ $chartCount > 1 ? 'hidden' : '' }}">
+                        No hay suficientes carreras para mostrar historial.
+                    </div>
+                    <div class="mt-2 flex justify-between text-xs text-zinc-400">
+                        <span id="historyXStart">{{ $chartXStart }}</span>
+                        <span id="historyXMid">{{ $chartXMid }}</span>
+                        <span id="historyXEnd">{{ $chartXEnd }}</span>
+                    </div>
+                </div>
+            </div>
         </div>
     </section>
 
+    <script>
+        (() => {
+            const chart = document.getElementById('performanceChart');
+            if (!chart) return;
+
+            const series = JSON.parse(chart.dataset.series || '{}');
+            const line = document.getElementById('historyLine');
+            const area = document.getElementById('historyArea');
+            const empty = document.getElementById('historyEmpty');
+            const svg = document.getElementById('historySvg');
+            const yMin = document.getElementById('historyYMin');
+            const yMid = document.getElementById('historyYMid');
+            const yMax = document.getElementById('historyYMax');
+            const xStart = document.getElementById('historyXStart');
+            const xMid = document.getElementById('historyXMid');
+            const xEnd = document.getElementById('historyXEnd');
+            const buttons = document.querySelectorAll('[data-series-btn]');
+
+            const setActive = (key) => {
+                const data = series[key];
+                if (!data) return;
+
+                if (data.count > 1) {
+                    svg.classList.remove('hidden');
+                    empty.classList.add('hidden');
+                    line.setAttribute('points', data.points);
+                    area.setAttribute('d', 'M ' + data.area);
+                    yMin.textContent = data.y_min;
+                    yMid.textContent = data.y_mid;
+                    yMax.textContent = data.y_max;
+                    xStart.textContent = data.x_start;
+                    xMid.textContent = data.x_mid;
+                    xEnd.textContent = data.x_end;
+                } else {
+                    svg.classList.add('hidden');
+                    empty.classList.remove('hidden');
+                }
+
+                buttons.forEach((btn) => {
+                    const isActive = btn.dataset.seriesBtn === key;
+                    btn.classList.toggle('border-[#e8000d]/80', isActive);
+                    btn.classList.toggle('bg-[#7a0007]/25', isActive);
+                    btn.classList.toggle('text-[#e8000d]', isActive);
+                    btn.classList.toggle('border-zinc-600', !isActive);
+                    btn.classList.toggle('text-zinc-400', !isActive);
+                });
+            };
+
+            buttons.forEach((btn) => {
+                btn.addEventListener('click', () => setActive(btn.dataset.seriesBtn));
+            });
+        })();
+    </script>
+
     <div class="grid gap-5 lg:grid-cols-2">
-        <section class="rounded-2xl border border-zinc-700/60 bg-[#000000]/85 p-4 md:p-6 shadow-lg">
+        <section class="rounded-2xl border border-zinc-700/60 bg-[#000000]/75 p-4 md:p-6 shadow-lg">
             <h2 class="mb-4 text-3xl font-bold text-[#e8000d]">Estadísticas generales</h2>
 
             <div class="grid grid-cols-3 gap-2 text-center">
@@ -254,7 +401,7 @@
             </div>
         </section>
 
-        <section class="rounded-2xl border border-zinc-700/60 bg-[#000000]/85 p-4 md:p-6 shadow-lg">
+        <section class="rounded-2xl border border-zinc-700/60 bg-[#000000]/75 p-4 md:p-6 shadow-lg">
             <h2 class="mb-4 text-3xl font-bold text-[#e8000d]">Estadísticas 2026</h2>
 
             <div class="grid gap-2">
@@ -282,7 +429,7 @@
         </section>
     </div>
 
-    <section class="rounded-2xl border border-zinc-700/60 bg-[#000000]/85 p-4 md:p-6 shadow-lg">
+    <section class="rounded-2xl border border-zinc-700/60 bg-[#000000]/75 p-4 md:p-6 shadow-lg">
         <h2 class="mb-4 text-3xl font-bold text-[#e8000d]">Últimas carreras</h2>
 
         @if($user->iracing_linked)
@@ -291,14 +438,14 @@
                     @php
                         $iDelta = (int) ($race->irating_change ?? 0);
                     @endphp
-                    <article class="rounded-xl border border-zinc-600/70 bg-[#0d0f1b]/85">
+                    <article class="rounded-xl border border-zinc-600/70 bg-[#222222]/70">
                         <div class="flex items-start justify-between gap-3 px-3 py-3 border-b border-zinc-700/60">
                             <div>
                                 <p class="text-lg font-bold text-white">{{ $race->series_name ?? 'iRacing Series' }}</p>
                                 <p class="text-sm text-zinc-300">{{ optional($race->race_date)->format('M d, Y') ?: '-' }}</p>
                                 <p class="mt-1 text-sm text-zinc-200">{{ $race->track_name ?? 'Unknown track' }}</p>
                             </div>
-                            <div class="rounded-lg border border-zinc-500 bg-zinc-800/80 px-3 py-1.5 text-lg font-black text-white">
+                            <div class="rounded-lg border border-zinc-500 bg-zinc-800/50 px-3 py-1.5 text-lg font-black text-white">
                                 P{{ $race->finish_position ?? '-' }}
                             </div>
                         </div>
