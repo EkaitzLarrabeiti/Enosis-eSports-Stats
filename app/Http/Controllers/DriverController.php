@@ -134,21 +134,31 @@ class DriverController extends Controller
     private function extractLicenseRatings(array $payload): array
     {
         $ratings = [
-            'sports_car' => ['ir' => 0, 'sr' => '-'],
-            'formula_car' => ['ir' => 0, 'sr' => '-'],
-            'oval' => ['ir' => 0, 'sr' => '-'],
-            'dirt_road' => ['ir' => 0, 'sr' => '-'],
-            'dirt_oval' => ['ir' => 0, 'sr' => '-'],
+            'sports_car' => ['ir' => 0, 'sr' => '-', 'class' => 'R', 'class_border' => 'border-red-500', 'class_text' => 'text-red-300', 'class_color' => 'border-red-500 text-red-300'],
+            'formula_car' => ['ir' => 0, 'sr' => '-', 'class' => 'R', 'class_border' => 'border-red-500', 'class_text' => 'text-red-300', 'class_color' => 'border-red-500 text-red-300'],
+            'oval' => ['ir' => 0, 'sr' => '-', 'class' => 'R', 'class_border' => 'border-red-500', 'class_text' => 'text-red-300', 'class_color' => 'border-red-500 text-red-300'],
+            'dirt_road' => ['ir' => 0, 'sr' => '-', 'class' => 'R', 'class_border' => 'border-red-500', 'class_text' => 'text-red-300', 'class_color' => 'border-red-500 text-red-300'],
+            'dirt_oval' => ['ir' => 0, 'sr' => '-', 'class' => 'R', 'class_border' => 'border-red-500', 'class_text' => 'text-red-300', 'class_color' => 'border-red-500 text-red-300'],
+            'road' => ['ir' => 0, 'sr' => '-', 'class' => 'R', 'class_border' => 'border-red-500', 'class_text' => 'text-red-300', 'class_color' => 'border-red-500 text-red-300'],
         ];
 
         $licenses = $this->resolveLicensesArray($payload);
 
-        foreach ($licenses as $license) {
+        foreach ($licenses as $licenseKey => $license) {
+            if (is_array($license) && isset($license['license']) && is_array($license['license'])) {
+                $license = $license['license'];
+            }
+
             if (! is_array($license)) {
                 continue;
             }
 
-            $key = $this->resolveLicenseKey($license);
+            $key = null;
+            if (is_string($licenseKey)) {
+                $key = $this->normalizeLicenseKey($licenseKey);
+            }
+
+            $key = $key ?? $this->resolveLicenseKey($license);
             if (! $key || ! array_key_exists($key, $ratings)) {
                 continue;
             }
@@ -172,11 +182,204 @@ class DriverController extends Controller
             }
 
             if ($safetyRating !== null) {
-                $ratings[$key]['sr'] = (string) $safetyRating;
+                $ratings[$key]['sr'] = $this->formatSafetyRating($safetyRating);
             }
+
+            $classInfo = $this->resolveLicenseClassInfo($license, $safetyRating ?? null);
+            $ratings[$key]['class'] = $classInfo['label'];
+            $ratings[$key]['class_border'] = $classInfo['border'];
+            $ratings[$key]['class_text'] = $classInfo['text'];
+            $ratings[$key]['class_color'] = $classInfo['border'].' '.$classInfo['text'];
+            $ratings[$key]['class_color_hex'] = $classInfo['color_hex'];
+        }
+
+        if (
+            $this->isEmptyRating($ratings['sports_car'])
+            && $this->isEmptyRating($ratings['formula_car'])
+            && ! $this->isEmptyRating($ratings['road'])
+        ) {
+            $ratings['sports_car'] = $ratings['road'];
         }
 
         return $ratings;
+    }
+
+    private function isEmptyRating(array $rating): bool
+    {
+        return ((int) ($rating['ir'] ?? 0)) <= 0 && (string) ($rating['sr'] ?? '-') === '-';
+    }
+
+    private function normalizeLicenseKey(string $value): ?string
+    {
+        $normalized = strtolower(trim($value));
+        $normalized = str_replace([' ', '-', '/'], '_', $normalized);
+
+        if (str_contains($normalized, 'sports')) {
+            return 'sports_car';
+        }
+        if (str_contains($normalized, 'formula')) {
+            return 'formula_car';
+        }
+        if (str_contains($normalized, 'dirt') && str_contains($normalized, 'oval')) {
+            return 'dirt_oval';
+        }
+        if (str_contains($normalized, 'dirt') && str_contains($normalized, 'road')) {
+            return 'dirt_road';
+        }
+        if (str_contains($normalized, 'oval')) {
+            return 'oval';
+        }
+        if (str_contains($normalized, 'road')) {
+            return 'road';
+        }
+
+        return null;
+    }
+
+    private function resolveLicenseClassInfo(array $license, $safetyRating): array
+    {
+        $groupLevel = data_get($license, 'group_level')
+            ?? data_get($license, 'license_group_level')
+            ?? data_get($license, 'group_level_name')
+            ?? data_get($license, 'group_name')
+            ?? data_get($license, 'license_group_name')
+            ?? data_get($license, 'license.group_level')
+            ?? data_get($license, 'rating.group_level');
+
+        $class = data_get($license, 'license_class')
+            ?? data_get($license, 'class')
+            ?? data_get($license, 'license_class_id')
+            ?? data_get($license, 'license_class_name')
+            ?? data_get($license, 'class_name')
+            ?? data_get($license, 'class_letter')
+            ?? data_get($license, 'license_class_letter')
+            ?? data_get($license, 'category_class')
+            ?? data_get($license, 'level')
+            ?? data_get($license, 'lic_class')
+            ?? data_get($license, 'class_id')
+            ?? data_get($license, 'rating.license_class')
+            ?? data_get($license, 'rating.license_class_id')
+            ?? data_get($license, 'rating.license_class_name');
+
+        if (is_string($safetyRating) && preg_match('/^[A-Za-z]/', $safetyRating)) {
+            $class = strtoupper(substr(trim($safetyRating), 0, 1));
+        }
+
+        $label = 'R';
+        $labelFromGroup = false;
+        if (is_string($groupLevel) && $groupLevel !== '') {
+            $normalizedGroup = strtoupper(trim($groupLevel));
+            if (str_contains($normalizedGroup, 'ROOKIE')) {
+                $label = 'R';
+            } elseif (preg_match('/([A-Z])\\s*$/', $normalizedGroup, $matches)) {
+                $label = $matches[1];
+            } elseif (preg_match('/([A-Z])/', $normalizedGroup, $matches)) {
+                $label = $matches[1];
+            } else {
+                $label = substr($normalizedGroup, -1);
+            }
+            $labelFromGroup = true;
+        }
+
+        if (! $labelFromGroup && is_numeric($class)) {
+            $numericClass = (int) $class;
+            $label = match (true) {
+                $numericClass >= 0 && $numericClass <= 5 => match ($numericClass) {
+                    0 => 'R',
+                    1 => 'D',
+                    2 => 'C',
+                    3 => 'B',
+                    4 => 'A',
+                    5 => 'P',
+                    default => 'R',
+                },
+                $numericClass >= 1 && $numericClass <= 6 => match ($numericClass) {
+                    1 => 'R',
+                    2 => 'D',
+                    3 => 'C',
+                    4 => 'B',
+                    5 => 'A',
+                    6 => 'P',
+                    default => 'R',
+                },
+                default => 'R',
+            };
+        } elseif (! $labelFromGroup && is_string($class) && $class !== '') {
+            $normalized = strtoupper(trim($class));
+            if (str_contains($normalized, 'ROOKIE')) {
+                $label = 'R';
+            } elseif (str_contains($normalized, 'PRO')) {
+                $label = 'P';
+            } else {
+                $label = substr($normalized, 0, 1);
+            }
+        }
+
+        $colorHex = $this->normalizeHexColor(
+            data_get($license, 'color')
+                ?? data_get($license, 'license_color')
+                ?? data_get($license, 'rating.color')
+        );
+
+        $border = match ($label) {
+            'A' => 'border-blue-500',
+            'B' => 'border-emerald-500',
+            'C' => 'border-yellow-500',
+            'D' => 'border-orange-500',
+            'P' => 'border-purple-500',
+            default => 'border-red-500',
+        };
+
+        $text = match ($label) {
+            'A' => 'text-blue-300',
+            'B' => 'text-emerald-300',
+            'C' => 'text-yellow-300',
+            'D' => 'text-orange-300',
+            'P' => 'text-purple-300',
+            default => 'text-red-300',
+        };
+
+        return ['label' => $label, 'border' => $border, 'text' => $text, 'color_hex' => $colorHex];
+    }
+
+    private function normalizeHexColor($value): ?string
+    {
+        if (! is_string($value)) {
+            return null;
+        }
+
+        $hex = ltrim(trim($value), '#');
+        if ($hex === '') {
+            return null;
+        }
+
+        if (! preg_match('/^[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/', $hex)) {
+            return null;
+        }
+
+        return '#'.strtolower($hex);
+    }
+
+    private function formatSafetyRating($value): string
+    {
+        if (is_numeric($value)) {
+            return number_format((float) $value, 2);
+        }
+
+        if (is_string($value)) {
+            $trimmed = trim($value);
+            if ($trimmed === '') {
+                return '-';
+            }
+
+            if (preg_match('/([0-9]+(?:\\.[0-9]+)?)/', $trimmed, $matches)) {
+                return number_format((float) $matches[1], 2);
+            }
+
+            return $trimmed;
+        }
+
+        return '-';
     }
 
     private function resolveLicensesArray(array $payload): array

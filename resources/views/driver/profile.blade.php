@@ -21,6 +21,7 @@
             letter-spacing: 0.06em;
         }
     </style>
+    <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
 @endpush
 
 @section('content')
@@ -37,14 +38,34 @@
         $dirtOval = (array) data_get($licenseRatings, 'dirt_oval', []);
         $sportsCarIr = (int) data_get($sportsCar, 'ir', 0);
         $sportsCarSr = (string) data_get($sportsCar, 'sr', '-');
+        $sportsCarClass = (string) data_get($sportsCar, 'class', 'R');
+        $sportsCarClassColor = (string) data_get($sportsCar, 'class_color', 'border-red-500 text-red-300');
+        $sportsCarBorder = (string) data_get($sportsCar, 'class_border', 'border-red-500');
+        $sportsCarHex = (string) data_get($sportsCar, 'class_color_hex', '');
         $formulaCarIr = (int) data_get($formulaCar, 'ir', 0);
         $formulaCarSr = (string) data_get($formulaCar, 'sr', '-');
+        $formulaCarClass = (string) data_get($formulaCar, 'class', 'R');
+        $formulaCarClassColor = (string) data_get($formulaCar, 'class_color', 'border-red-500 text-red-300');
+        $formulaCarBorder = (string) data_get($formulaCar, 'class_border', 'border-red-500');
+        $formulaCarHex = (string) data_get($formulaCar, 'class_color_hex', '');
         $ovalIr = (int) data_get($oval, 'ir', 0);
         $ovalSr = (string) data_get($oval, 'sr', '-');
+        $ovalClass = (string) data_get($oval, 'class', 'R');
+        $ovalClassColor = (string) data_get($oval, 'class_color', 'border-red-500 text-red-300');
+        $ovalBorder = (string) data_get($oval, 'class_border', 'border-red-500');
+        $ovalHex = (string) data_get($oval, 'class_color_hex', '');
         $dirtRoadIr = (int) data_get($dirtRoad, 'ir', 0);
         $dirtRoadSr = (string) data_get($dirtRoad, 'sr', '-');
+        $dirtRoadClass = (string) data_get($dirtRoad, 'class', 'R');
+        $dirtRoadClassColor = (string) data_get($dirtRoad, 'class_color', 'border-red-500 text-red-300');
+        $dirtRoadBorder = (string) data_get($dirtRoad, 'class_border', 'border-red-500');
+        $dirtRoadHex = (string) data_get($dirtRoad, 'class_color_hex', '');
         $dirtOvalIr = (int) data_get($dirtOval, 'ir', 0);
         $dirtOvalSr = (string) data_get($dirtOval, 'sr', '-');
+        $dirtOvalClass = (string) data_get($dirtOval, 'class', 'R');
+        $dirtOvalClassColor = (string) data_get($dirtOval, 'class_color', 'border-red-500 text-red-300');
+        $dirtOvalBorder = (string) data_get($dirtOval, 'class_border', 'border-red-500');
+        $dirtOvalHex = (string) data_get($dirtOval, 'class_color_hex', '');
         $currentIRating = (int) (data_get($sportsCar, 'ir') ?? data_get($formulaCar, 'ir') ?? data_get($oval, 'ir') ?? data_get($stats, 'irating', 0));
         $safetyRating = (string) (data_get($sportsCar, 'sr') ?? data_get($formulaCar, 'sr') ?? data_get($oval, 'sr') ?? data_get($stats, 'safety_rating', '-'));
         $top5Count = $results->filter(fn ($race) => (int) ($race->finish_position ?? 999) <= 5)->count();
@@ -60,11 +81,9 @@
         $lastSyncedValue = data_get($stats, 'last_synced_at');
         $lastSynced = optional($lastSyncedValue)->format('d/m/Y H:i');
 
-        $chartWidth = 1000;
-        $chartHeight = 220;
         $chartSource = $chartResults ?? $results;
 
-        $buildChart = function ($collection) use ($chartWidth, $chartHeight) {
+        $buildChart = function ($collection) {
             $collection = $collection->filter(fn ($race) => $race->race_date)->sortBy('race_date')->values();
             $latestRating = (int) ($collection->last()?->newi_rating ?? 0);
 
@@ -86,40 +105,21 @@
                 }
             }
 
-            $chartValues = $historyValues->values()->all();
-            $chartCount = count($chartValues);
-            $chartMin = $chartCount > 0 ? min($chartValues) : 0;
-            $chartMax = $chartCount > 0 ? max($chartValues) : 1;
-            $chartRange = max(1, $chartMax - $chartMin);
-
-            $points = [];
-            foreach ($chartValues as $index => $value) {
-                $x = $chartCount > 1 ? ($index / ($chartCount - 1)) * $chartWidth : 0;
-                $normalized = ($value - $chartMin) / $chartRange;
-                $y = $chartHeight - ($normalized * $chartHeight);
-                $points[] = round($x, 2).','.round($y, 2);
+            $datePoints = $collection->pluck('race_date')->values();
+            if ($datePoints->count() === $historyValues->count() - 1 && $datePoints->isNotEmpty()) {
+                $datePoints->prepend($datePoints->first());
             }
 
-            $chartPoints = implode(' ', $points);
-            $chartArea = $chartCount > 0 ? $chartPoints.' '.$chartWidth.','.$chartHeight.' 0,'.$chartHeight : '';
-
-            $startDate = $collection->first()?->race_date;
-            $endDate = $collection->last()?->race_date;
-            $midDate = null;
-            if ($collection->count() > 2) {
-                $midDate = $collection->get((int) floor($collection->count() / 2))?->race_date;
+            $series = [];
+            foreach ($historyValues->values() as $index => $value) {
+                $date = $datePoints[$index] ?? $datePoints->first();
+                $timestamp = $date?->timestamp ? $date->timestamp * 1000 : now()->timestamp * 1000;
+                $series[] = ['x' => $timestamp, 'y' => (int) $value];
             }
 
             return [
-                'points' => $chartPoints,
-                'area' => $chartArea,
-                'count' => $chartCount,
-                'x_start' => $startDate ? $startDate->format('d M') : '-',
-                'x_mid' => $midDate ? $midDate->format('d M') : '-',
-                'x_end' => $endDate ? $endDate->format('d M') : '-',
-                'y_min' => (int) $chartMin,
-                'y_mid' => (int) round(($chartMin + $chartMax) / 2),
-                'y_max' => (int) $chartMax,
+                'series' => $series,
+                'count' => count($series),
             ];
         };
 
@@ -141,15 +141,7 @@
 
         $activeSeries = 'sports_car';
         $activeChart = $chartSeries[$activeSeries];
-        $chartPoints = $activeChart['points'];
-        $chartArea = $activeChart['area'];
         $chartCount = $activeChart['count'];
-        $chartXStart = $activeChart['x_start'];
-        $chartXMid = $activeChart['x_mid'];
-        $chartXEnd = $activeChart['x_end'];
-        $chartYMin = $activeChart['y_min'];
-        $chartYMid = $activeChart['y_mid'];
-        $chartYMax = $activeChart['y_max'];
     @endphp
     <div class="driver-profile space-y-5">
 
@@ -221,39 +213,39 @@
                 </div>
 
                 <div class="grid grid-cols-2 gap-2 text-xs">
-                    <div class="rounded-lg border border-[#7a0007]/80 bg-zinc-900/80 p-2">
-                        <p class="text-zinc-400">Sports Car</p>
-                        <div class="mt-1 flex items-center justify-center sm:justify-start gap-2">
-                            <span class="rounded border border-red-500 px-1.5 py-0.5 text-red-300">R {{ $sportsCarSr }}</span>
-                            <span class="rounded border border-[#e8000d] px-1.5 py-0.5 text-[#e8000d]">{{ $sportsCarIr > 0 ? number_format($sportsCarIr) : '-' }} iR</span>
+                    <div class="rounded-lg border {{ $sportsCarBorder }} bg-zinc-900/80 p-3" style="{{ $sportsCarHex ? 'border-color: '.$sportsCarHex.';' : '' }}">
+                        <p class="text-zinc-300">Sports Car</p>
+                        <div class="mt-1.5 flex items-center justify-center sm:justify-start gap-2">
+                            <span class="rounded border px-1.5 py-0.5 {{ $sportsCarClassColor }}" style="{{ $sportsCarHex ? 'border-color: '.$sportsCarHex.'; color: '.$sportsCarHex.';' : '' }}">{{ $sportsCarClass }} {{ $sportsCarSr }}</span>
+                            <span class="rounded border border-[#fc0706] px-1.5 py-0.5 text-[#fc0706]">{{ $sportsCarIr > 0 ? number_format($sportsCarIr) : '-' }} iR</span>
                         </div>
                     </div>
-                    <div class="rounded-lg border border-[#7a0007]/80 bg-zinc-900/80 p-2">
-                        <p class="text-zinc-400">Formula Car</p>
-                        <div class="mt-1 flex items-center justify-center sm:justify-start gap-2">
-                            <span class="rounded border border-blue-500 px-1.5 py-0.5 text-blue-300">A {{ $formulaCarSr }}</span>
-                            <span class="rounded border border-[#e8000d] px-1.5 py-0.5 text-[#e8000d]">{{ $formulaCarIr > 0 ? number_format($formulaCarIr) : '-' }} iR</span>
+                    <div class="rounded-lg border {{ $formulaCarBorder }} bg-zinc-900/80 p-3" style="{{ $formulaCarHex ? 'border-color: '.$formulaCarHex.';' : '' }}">
+                        <p class="text-zinc-300">Formula Car</p>
+                        <div class="mt-1.5 flex items-center justify-center sm:justify-start gap-2">
+                            <span class="rounded border px-1.5 py-0.5 {{ $formulaCarClassColor }}" style="{{ $formulaCarHex ? 'border-color: '.$formulaCarHex.'; color: '.$formulaCarHex.';' : '' }}">{{ $formulaCarClass }} {{ $formulaCarSr }}</span>
+                            <span class="rounded border border-[#fc0706] px-1.5 py-0.5 text-[#fc0706]">{{ $formulaCarIr > 0 ? number_format($formulaCarIr) : '-' }} iR</span>
                         </div>
                     </div>
-                    <div class="rounded-lg border border-[#7a0007]/80 bg-zinc-900/80 p-2">
-                        <p class="text-zinc-400">Oval</p>
-                        <div class="mt-1 flex items-center justify-center sm:justify-start gap-2">
-                            <span class="rounded border border-red-500 px-1.5 py-0.5 text-red-300">R {{ $ovalSr }}</span>
-                            <span class="rounded border border-[#e8000d] px-1.5 py-0.5 text-[#e8000d]">{{ $ovalIr > 0 ? number_format($ovalIr) : '-' }} iR</span>
+                    <div class="rounded-lg border {{ $ovalBorder }} bg-zinc-900/80 p-3" style="{{ $ovalHex ? 'border-color: '.$ovalHex.';' : '' }}">
+                        <p class="text-zinc-300">Oval</p>
+                        <div class="mt-1.5 flex items-center justify-center sm:justify-start gap-2">
+                            <span class="rounded border px-1.5 py-0.5 {{ $ovalClassColor }}" style="{{ $ovalHex ? 'border-color: '.$ovalHex.'; color: '.$ovalHex.';' : '' }}">{{ $ovalClass }} {{ $ovalSr }}</span>
+                            <span class="rounded border border-[#fc0706] px-1.5 py-0.5 text-[#fc0706]">{{ $ovalIr > 0 ? number_format($ovalIr) : '-' }} iR</span>
                         </div>
                     </div>
-                    <div class="rounded-lg border border-[#7a0007]/80 bg-zinc-900/80 p-2">
-                        <p class="text-zinc-400">Dirt Road</p>
-                        <div class="mt-1 flex items-center justify-center sm:justify-start gap-2">
-                            <span class="rounded border border-red-500 px-1.5 py-0.5 text-red-300">R {{ $dirtRoadSr }}</span>
-                            <span class="rounded border border-[#e8000d] px-1.5 py-0.5 text-[#e8000d]">{{ $dirtRoadIr > 0 ? number_format($dirtRoadIr) : '-' }} iR</span>
+                    <div class="rounded-lg border {{ $dirtRoadBorder }} bg-zinc-900/80 p-3" style="{{ $dirtRoadHex ? 'border-color: '.$dirtRoadHex.';' : '' }}">
+                        <p class="text-zinc-300">Dirt Road</p>
+                        <div class="mt-1.5 flex items-center justify-center sm:justify-start gap-2">
+                            <span class="rounded border px-1.5 py-0.5 {{ $dirtRoadClassColor }}" style="{{ $dirtRoadHex ? 'border-color: '.$dirtRoadHex.'; color: '.$dirtRoadHex.';' : '' }}">{{ $dirtRoadClass }} {{ $dirtRoadSr }}</span>
+                            <span class="rounded border border-[#fc0706] px-1.5 py-0.5 text-[#fc0706]">{{ $dirtRoadIr > 0 ? number_format($dirtRoadIr) : '-' }} iR</span>
                         </div>
                     </div>
-                    <div class="rounded-lg border border-[#7a0007]/80 bg-zinc-900/80 p-2">
-                        <p class="text-zinc-400">Dirt Oval</p>
-                        <div class="mt-1 flex items-center justify-center sm:justify-start gap-2">
-                            <span class="rounded border border-red-500 px-1.5 py-0.5 text-red-300">R {{ $dirtOvalSr }}</span>
-                            <span class="rounded border border-[#e8000d] px-1.5 py-0.5 text-[#e8000d]">{{ $dirtOvalIr > 0 ? number_format($dirtOvalIr) : '-' }} iR</span>
+                    <div class="rounded-lg border {{ $dirtOvalBorder }} bg-zinc-900/80 p-3" style="{{ $dirtOvalHex ? 'border-color: '.$dirtOvalHex.';' : '' }}">
+                        <p class="text-zinc-300">Dirt Oval</p>
+                        <div class="mt-1.5 flex items-center justify-center sm:justify-start gap-2">
+                            <span class="rounded border px-1.5 py-0.5 {{ $dirtOvalClassColor }}" style="{{ $dirtOvalHex ? 'border-color: '.$dirtOvalHex.'; color: '.$dirtOvalHex.';' : '' }}">{{ $dirtOvalClass }} {{ $dirtOvalSr }}</span>
+                            <span class="rounded border border-[#fc0706] px-1.5 py-0.5 text-[#fc0706]">{{ $dirtOvalIr > 0 ? number_format($dirtOvalIr) : '-' }} iR</span>
                         </div>
                     </div>
                 </div>
@@ -277,33 +269,9 @@
         </div>
 
         <div id="performanceChart" data-series='@json($chartSeries)' class="rounded-xl border border-zinc-700/50 bg-[#101010]/85 p-3">
-            <div class="grid grid-cols-[64px_1fr] gap-3">
-                <div class="flex flex-col justify-between text-xs text-zinc-400 py-2">
-                    <span id="historyYMax">{{ $chartYMax }}</span>
-                    <span id="historyYMid">{{ $chartYMid }}</span>
-                    <span id="historyYMin">{{ $chartYMin }}</span>
-                </div>
-                <div>
-                    <svg id="historySvg" viewBox="0 0 1000 220" class="h-64 w-full {{ $chartCount > 1 ? '' : 'hidden' }}">
-                        <defs>
-                            <linearGradient id="historyFill" x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="0%" stop-color="#e8000d" stop-opacity="0.35"/>
-                                <stop offset="100%" stop-color="#7a0007" stop-opacity="0"/>
-                            </linearGradient>
-                        </defs>
-                        <rect x="0" y="0" width="1000" height="220" fill="#101010"/>
-                        <path id="historyArea" d="M {{ $chartArea }}" fill="url(#historyFill)"></path>
-                        <polyline id="historyLine" points="{{ $chartPoints }}" fill="none" stroke="#e8000d" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"></polyline>
-                    </svg>
-                    <div id="historyEmpty" class="flex h-64 items-center justify-center text-zinc-400 {{ $chartCount > 1 ? 'hidden' : '' }}">
-                        No hay suficientes carreras para mostrar historial.
-                    </div>
-                    <div class="mt-2 flex justify-between text-xs text-zinc-400">
-                        <span id="historyXStart">{{ $chartXStart }}</span>
-                        <span id="historyXMid">{{ $chartXMid }}</span>
-                        <span id="historyXEnd">{{ $chartXEnd }}</span>
-                    </div>
-                </div>
+            <div id="historyChart" class="h-64 w-full"></div>
+            <div id="historyEmpty" class="flex h-64 items-center justify-center text-zinc-400">
+                Cargando gráfico...
             </div>
         </div>
     </section>
@@ -314,37 +282,77 @@
             if (!chart) return;
 
             const series = JSON.parse(chart.dataset.series || '{}');
-            const line = document.getElementById('historyLine');
-            const area = document.getElementById('historyArea');
             const empty = document.getElementById('historyEmpty');
-            const svg = document.getElementById('historySvg');
-            const yMin = document.getElementById('historyYMin');
-            const yMid = document.getElementById('historyYMid');
-            const yMax = document.getElementById('historyYMax');
-            const xStart = document.getElementById('historyXStart');
-            const xMid = document.getElementById('historyXMid');
-            const xEnd = document.getElementById('historyXEnd');
+            const chartContainer = document.getElementById('historyChart');
             const buttons = document.querySelectorAll('[data-series-btn]');
+
+            if (!chartContainer) return;
+            if (typeof ApexCharts === 'undefined') {
+                empty.classList.remove('hidden');
+                empty.textContent = 'No se pudo cargar ApexCharts.';
+                return;
+            }
+
+            const baseOptions = {
+                chart: {
+                    type: 'area',
+                    height: 260,
+                    toolbar: { show: false },
+                    zoom: { enabled: false },
+                    animations: { speed: 450 },
+                    foreColor: '#a1a1aa',
+                },
+                stroke: { curve: 'smooth', width: 3 },
+                fill: {
+                    type: 'gradient',
+                    gradient: {
+                        shadeIntensity: 1,
+                        opacityFrom: 0.35,
+                        opacityTo: 0.0,
+                        stops: [0, 100],
+                    },
+                },
+                colors: ['#f2b310'],
+                grid: {
+                    borderColor: 'rgba(255,255,255,0.06)',
+                    strokeDashArray: 4,
+                    xaxis: { lines: { show: true } },
+                    yaxis: { lines: { show: true } },
+                },
+                xaxis: {
+                    type: 'datetime',
+                    labels: { datetimeUTC: false, format: 'MMM d' },
+                    tickAmount: 10,
+                },
+                yaxis: {
+                    tickAmount: 5,
+                    labels: {
+                        formatter: (value) => Math.round(value),
+                    },
+                },
+                tooltip: {
+                    x: { format: 'dd MMM yyyy' },
+                },
+                dataLabels: { enabled: false },
+            };
+
+            const initialSeries = (series && series.sports_car && series.sports_car.series) ? series.sports_car.series : [];
+            const chart = new ApexCharts(chartContainer, {
+                ...baseOptions,
+                series: [{ name: 'iRating', data: initialSeries }],
+            });
+            chart.render();
 
             const setActive = (key) => {
                 const data = series[key];
                 if (!data) return;
 
-                if (data.count > 1) {
-                    svg.classList.remove('hidden');
-                    empty.classList.add('hidden');
-                    line.setAttribute('points', data.points);
-                    area.setAttribute('d', 'M ' + data.area);
-                    yMin.textContent = data.y_min;
-                    yMid.textContent = data.y_mid;
-                    yMax.textContent = data.y_max;
-                    xStart.textContent = data.x_start;
-                    xMid.textContent = data.x_mid;
-                    xEnd.textContent = data.x_end;
-                } else {
-                    svg.classList.add('hidden');
-                    empty.classList.remove('hidden');
-                }
+                const seriesData = data.series ?? [];
+                const hasData = seriesData.length > 0;
+                empty.classList.toggle('hidden', hasData);
+                chartContainer.classList.toggle('hidden', !hasData);
+                empty.textContent = hasData ? '' : 'No hay suficientes carreras para mostrar historial.';
+                chart.updateSeries([{ name: 'iRating', data: seriesData }], true);
 
                 buttons.forEach((btn) => {
                     const isActive = btn.dataset.seriesBtn === key;
@@ -359,6 +367,8 @@
             buttons.forEach((btn) => {
                 btn.addEventListener('click', () => setActive(btn.dataset.seriesBtn));
             });
+
+            setActive('sports_car');
         })();
     </script>
 
