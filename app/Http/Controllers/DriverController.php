@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\User;
 use App\Services\IRacingApiService;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
@@ -52,6 +53,7 @@ class DriverController extends Controller
                 $allResults = $this->mapRecentRaces(collect(data_get($recentRaces, 'races', [])));
                 $results = $allResults->take(10)->values();
                 $stats = $this->buildLiveStats($summary, $results, $memberInfo);
+                $chartSeriesFromApi = $this->buildChartSeriesFromApi($user);
             } catch (RuntimeException $exception) {
                 report($exception);
                 $iracingNotice = 'No se pudieron cargar los datos de iRacing. Intenta vincular la cuenta de nuevo.';
@@ -66,6 +68,7 @@ class DriverController extends Controller
             'stats' => $stats,
             'results' => $results,
             'chartResults' => $allResults ?? $results,
+            'chartSeriesFromApi' => $chartSeriesFromApi ?? null,
             'iracingNotice' => $iracingNotice,
         ]);
     }
@@ -441,7 +444,9 @@ class DriverController extends Controller
             1 => 'oval',
             3 => 'dirt_oval',
             4 => 'dirt_road',
-            2 => 'sports_car',
+            5 => 'sports_car',
+            6 => 'formula_car',
+            2 => 'road',
             default => null,
         };
     }
@@ -476,8 +481,337 @@ class DriverController extends Controller
             1 => 'oval',
             3 => 'dirt_oval',
             4 => 'dirt_road',
+            5 => 'sports_car',
+            6 => 'formula_car',
             2 => 'road',
             default => 'road',
         };
+    }
+
+    private function buildChartSeriesFromApi(User $user): array
+    {
+        $series = [];
+        $categories = [
+            'road' => 2,
+            'oval' => 1,
+            'dirt_oval' => 3,
+            'dirt_road' => 4,
+            'sports_car' => 5,
+            'formula_car' => 6,
+        ];
+
+        foreach ($categories as $key => $categoryId) {
+            if (! is_numeric($categoryId)) {
+                continue;
+            }
+
+            $query = [
+                'category_id' => $categoryId,
+                'chart_type' => 1,
+            ];
+
+            if (! empty($user->iracing_customer_id)) {
+                $query['cust_id'] = $user->iracing_customer_id;
+            }
+
+            try {
+                $cacheKey = 'iracing.chart_data.'.(string) $user->id.'.'.(string) $categoryId.'.1';
+                $payload = cache()->remember($cacheKey, 600, function () use ($user, $query) {
+                    return $this->iracingApiService->getForUser($user, 'data/member/chart_data', $query);
+                });
+            } catch (RuntimeException $exception) {
+                report($exception);
+                continue;
+            }
+
+            $grouped = $this->extractSeriesGroups($payload);
+            if ($grouped !== []) {
+                foreach ($grouped as $groupKey => $groupSeries) {
+                    if (! isset($series[$groupKey]) || $series[$groupKey]['count'] < $groupSeries['count']) {
+                        $series[$groupKey] = $groupSeries;
+                    }
+                }
+                continue;
+            }
+
+            $normalized = $this->normalizeChartSeries($payload);
+            if ($normalized['count'] > 0) {
+                $series[$key] = $normalized;
+            }
+        }
+
+        if (! empty($series)) {
+            $series['sports_car'] = $series['sports_car'] ?? ['series' => [], 'count' => 0];
+            $series['formula_car'] = $series['formula_car'] ?? ['series' => [], 'count' => 0];
+        }
+
+        return $series;
+    }
+
+    private function normalizeChartSeries(array $payload): array
+    {
+        $points = $this->extractChartPointList($payload);
+
+        return $this->normalizeChartPointList($points);
+    }
+
+    private function extractChartPointList(array $payload): array
+    {
+        $candidates = [];
+        foreach (['chart_data', 'data', 'points', 'chart', 'series', 'results'] as $key) {
+            $value = data_get($payload, $key);
+            if (is_array($value)) {
+                $candidates[] = $value;
+            }
+        }
+        $candidates[] = $payload;
+
+        foreach ($candidates as $candidate) {
+            if (! is_array($candidate) || $candidate === []) {
+                continue;
+            }
+
+            if ($this->isListArray($candidate)) {
+                return $candidate;
+            }
+
+            foreach ($candidate as $value) {
+                if (is_array($value) && $this->isListArray($value)) {
+                    return $value;
+                }
+            }
+        }
+
+        return [];
+    }
+
+    private function normalizeChartPointList(array $points): array
+    {
+        $series = [];
+
+        foreach ($points as $point) {
+            $normalized = $this->normalizeChartPoint($point);
+            if ($normalized !== null) {
+                $series[] = $normalized;
+            }
+        }
+
+        usort($series, fn (array $a, array $b) => $a['x'] <=> $b['x']);
+
+        return [
+            'series' => $series,
+            'count' => count($series),
+        ];
+    }
+
+    private function extractSeriesGroups(array $payload): array
+    {
+        $grouped = [];
+        $candidates = [];
+
+        foreach (['series', 'charts', 'chart', 'data', 'chart_data', 'results'] as $key) {
+            $value = data_get($payload, $key);
+            if (is_array($value)) {
+                $candidates[] = $value;
+            }
+        }
+
+        foreach ($candidates as $candidate) {
+            if (! is_array($candidate) || ! $this->isListArray($candidate)) {
+                continue;
+            }
+
+            foreach ($candidate as $item) {
+                if (is_object($item)) {
+                    $item = (array) $item;
+                }
+
+                if (! is_array($item)) {
+                    continue;
+                }
+
+                $data = $item['data']
+                    ?? $item['points']
+                    ?? $item['values']
+                    ?? $item['series']
+                    ?? null;
+
+                if (! is_array($data) || $data === []) {
+                    continue;
+                }
+
+                $name = $item['name']
+                    ?? $item['label']
+                    ?? $item['title']
+                    ?? $item['series_name']
+                    ?? $item['category']
+                    ?? data_get($item, 'license_group_name')
+                    ?? data_get($item, 'group_name');
+
+                $key = $name ? $this->normalizeLicenseKey((string) $name) : null;
+                if (! $key) {
+                    continue;
+                }
+
+                $normalized = $this->normalizeChartPointList($data);
+                if ($normalized['count'] === 0) {
+                    continue;
+                }
+
+                $grouped[$key] = $normalized;
+            }
+        }
+
+        return $grouped;
+    }
+
+    private function normalizeChartPoint($point): ?array
+    {
+        if (is_object($point)) {
+            $point = (array) $point;
+        }
+
+        if (! is_array($point)) {
+            return null;
+        }
+
+        $time = null;
+        $value = null;
+
+        if ($this->isListArray($point)) {
+            $first = $point[0] ?? null;
+            $second = $point[1] ?? null;
+
+            if ($this->isLikelyTimestamp($first) && ! $this->isLikelyTimestamp($second)) {
+                $time = $first;
+                $value = $second;
+            } elseif ($this->isLikelyTimestamp($second) && ! $this->isLikelyTimestamp($first)) {
+                $time = $second;
+                $value = $first;
+            } else {
+                $time = $first;
+                $value = $second;
+            }
+        } else {
+            $time = $point['timestamp']
+                ?? $point['time']
+                ?? $point['t']
+                ?? $point['when']
+                ?? $point['date']
+                ?? $point['start_time']
+                ?? $point['session_start_time']
+                ?? $point['race_date']
+                ?? null;
+            $value = $point['value']
+                ?? $point['rating']
+                ?? $point['irating']
+                ?? $point['i_rating']
+                ?? $point['y']
+                ?? $point['v']
+                ?? null;
+        }
+
+        $timestamp = $this->normalizeChartTimestamp($time);
+        if ($timestamp === null || $value === null || $value === '') {
+            return null;
+        }
+
+        return [
+            'x' => $timestamp,
+            'y' => (int) $value,
+        ];
+    }
+
+    private function normalizeChartTimestamp($value): ?int
+    {
+        if ($value instanceof Carbon) {
+            return $value->timestamp * 1000;
+        }
+
+        if (is_numeric($value)) {
+            $numeric = (int) $value;
+            $numericString = preg_replace('/\\D+/', '', (string) $value);
+
+            if ($numericString !== '') {
+                $length = strlen($numericString);
+
+                if ($length === 8) {
+                    $year = (int) substr($numericString, 0, 4);
+                    $month = (int) substr($numericString, 4, 2);
+                    $day = (int) substr($numericString, 6, 2);
+                    if ($year >= 1990 && $year <= 2100 && $month >= 1 && $month <= 12 && $day >= 1 && $day <= 31) {
+                        return Carbon::createFromDate($year, $month, $day)->timestamp * 1000;
+                    }
+                }
+
+                if ($length === 6) {
+                    $year = (int) substr($numericString, 0, 4);
+                    $month = (int) substr($numericString, 4, 2);
+                    if ($year >= 1990 && $year <= 2100 && $month >= 1 && $month <= 12) {
+                        return Carbon::createFromDate($year, $month, 1)->timestamp * 1000;
+                    }
+                }
+            }
+
+            if ($numeric > 0 && $numeric < 100_000) {
+                return Carbon::createFromTimestamp(0)->addDays($numeric)->timestamp * 1000;
+            }
+
+            if ($numeric <= 0) {
+                return null;
+            }
+            return $numeric > 10_000_000_000 ? $numeric : $numeric * 1000;
+        }
+
+        if (is_string($value)) {
+            $trimmed = trim($value);
+            if ($trimmed === '') {
+                return null;
+            }
+
+            try {
+                return Carbon::parse($trimmed)->timestamp * 1000;
+            } catch (\Throwable $exception) {
+                return null;
+            }
+        }
+
+        return null;
+    }
+
+    private function isListArray(array $value): bool
+    {
+        if (function_exists('array_is_list')) {
+            return array_is_list($value);
+        }
+
+        return array_keys($value) === range(0, count($value) - 1);
+    }
+
+    private function isLikelyTimestamp($value): bool
+    {
+        if ($value instanceof Carbon) {
+            return true;
+        }
+
+        if (is_numeric($value)) {
+            $numeric = (int) $value;
+            if ($numeric <= 0) {
+                return false;
+            }
+
+            return $numeric >= 1_000_000_000;
+        }
+
+        if (is_string($value)) {
+            $trimmed = trim($value);
+            if ($trimmed === '') {
+                return false;
+            }
+
+            return (bool) preg_match('/\\d{4}-\\d{2}-\\d{2}/', $trimmed);
+        }
+
+        return false;
     }
 }

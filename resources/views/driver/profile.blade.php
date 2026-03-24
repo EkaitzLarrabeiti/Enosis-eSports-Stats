@@ -1,29 +1,43 @@
-@extends('layouts.app')
-
+﻿@extends('layouts.app')
 @section('title', 'Panel piloto | Enosis eSports')
 @section('mainClass', 'w-full max-w-6xl mx-auto p-4 md:p-6 space-y-5')
-
 @push('head')
     <style>
         .driver-profile {
             font-family: 'Barlow Condensed', sans-serif;
         }
-
         .driver-profile h1,
         .driver-profile h2 {
             font-family: 'Orbitron', monospace;
             letter-spacing: 0.04em;
         }
-
         .driver-profile .text-xs,
         .driver-profile .text-\[11px\] {
             font-family: 'Share Tech Mono', monospace;
             letter-spacing: 0.06em;
         }
+        .driver-profile .apexcharts-tooltip,
+        .driver-profile .apexcharts-tooltip.apexcharts-theme-dark {
+            background: #0b0b0b;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            color: #f4f4f5;
+            box-shadow: 0 8px 18px rgba(0, 0, 0, 0.45);
+        }
+        .driver-profile .apexcharts-tooltip .apexcharts-tooltip-title {
+            background: transparent;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+            color: #e4e4e7;
+        }
+        .driver-profile .apexcharts-xaxistooltip,
+        .driver-profile .apexcharts-yaxistooltip {
+            background: #0b0b0b;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            color: #f4f4f5;
+        }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
+    @vite('resources/js/profile-chart.js')
 @endpush
-
 @section('content')
     @php
         $totalRaces = $results->count();
@@ -80,56 +94,46 @@
         $memberSince = optional($user->created_at)->format('M Y');
         $lastSyncedValue = data_get($stats, 'last_synced_at');
         $lastSynced = optional($lastSyncedValue)->format('d/m/Y H:i');
-
         $chartSource = $chartResults ?? $results;
-
         $buildChart = function ($collection) {
             $collection = $collection->filter(fn ($race) => $race->race_date)->sortBy('race_date')->values();
             $latestRating = (int) ($collection->last()?->newi_rating ?? 0);
-
             $changes = $collection
                 ->pluck('irating_change')
                 ->map(fn ($value) => (int) ($value ?? 0))
                 ->values();
-
             if ($changes->isEmpty()) {
                 $historyValues = collect([$latestRating > 0 ? $latestRating : 1500]);
             } else {
                 $base = ($latestRating > 0 ? $latestRating : 1500) - $changes->sum();
                 $running = $base;
                 $historyValues = collect([$running]);
-
                 foreach ($changes as $change) {
                     $running += $change;
                     $historyValues->push($running);
                 }
             }
-
             $datePoints = $collection->pluck('race_date')->values();
             if ($datePoints->count() === $historyValues->count() - 1 && $datePoints->isNotEmpty()) {
                 $datePoints->prepend($datePoints->first());
             }
-
             $series = [];
             foreach ($historyValues->values() as $index => $value) {
                 $date = $datePoints[$index] ?? $datePoints->first();
                 $timestamp = $date?->timestamp ? $date->timestamp * 1000 : now()->timestamp * 1000;
                 $series[] = ['x' => $timestamp, 'y' => (int) $value];
             }
-
             return [
                 'series' => $series,
                 'count' => count($series),
             ];
         };
-
         $sportsCarResults = $chartSource->where('license_key', 'sports_car');
         $formulaCarResults = $chartSource->where('license_key', 'formula_car');
         $ovalResults = $chartSource->where('license_key', 'oval');
         $dirtRoadResults = $chartSource->where('license_key', 'dirt_road');
         $dirtOvalResults = $chartSource->where('license_key', 'dirt_oval');
         $roadResults = $chartSource->where('license_key', 'road');
-
         $chartSeries = [
             'sports_car' => $buildChart($sportsCarResults->isEmpty() ? $chartSource : $sportsCarResults),
             'formula_car' => $buildChart($formulaCarResults->isEmpty() ? $chartSource : $formulaCarResults),
@@ -138,25 +142,74 @@
             'dirt_oval' => $buildChart($dirtOvalResults->isEmpty() ? $chartSource : $dirtOvalResults),
             'road' => $buildChart($roadResults->isEmpty() ? $chartSource : $roadResults),
         ];
+        if (! empty($chartSeriesFromApi) && is_array($chartSeriesFromApi)) {
+            $chartSeries = array_replace($chartSeries, $chartSeriesFromApi);
+        }
+        $chartColors = [
+            'sports_car' => $sportsCarHex ?: '#e8000d',
+            'formula_car' => $formulaCarHex ?: '#e8000d',
+            'oval' => $ovalHex ?: '#e8000d',
+            'dirt_road' => $dirtRoadHex ?: '#e8000d',
+            'dirt_oval' => $dirtOvalHex ?: '#e8000d',
+            'road' => '#d1d5db',
+        ];
+        $licenseLabels = [
+            'sports_car' => 'Sports Car',
+            'formula_car' => 'Formula Car',
+            'oval' => 'Oval',
+            'dirt_road' => 'Dirt Road',
+            'dirt_oval' => 'Dirt Oval',
+            'road' => 'Road (Retirado)',
+        ];
+        $buildLicenseStats = function ($collection) {
+            $collection = $collection->filter(fn ($race) => $race->finish_position !== null || $race->starting_position !== null);
+            $total = $collection->count();
+            if ($total <= 0) {
+                return null;
+            }
 
+            $winsCount = $collection->where('finish_position', 1)->count();
+            $top5 = $collection->filter(fn ($race) => (int) ($race->finish_position ?? 999) <= 5)->count();
+            $polesCount = $collection->where('starting_position', 1)->count();
+            $avgStartPos = $collection->whereNotNull('starting_position')->avg('starting_position');
+            $avgFinishPos = $collection->whereNotNull('finish_position')->avg('finish_position');
+            $avgIncidents = $collection->whereNotNull('incidents')->avg('incidents');
+
+            return [
+                'total' => $total,
+                'wins' => $winsCount,
+                'top5' => $top5,
+                'poles' => $polesCount,
+                'avg_start' => $avgStartPos,
+                'avg_finish' => $avgFinishPos,
+                'avg_inc' => $avgIncidents,
+            ];
+        };
+        $licenseStats = [];
+        foreach ($licenseLabels as $licenseKey => $label) {
+            $subset = $chartSource->where('license_key', $licenseKey);
+            $statsForLicense = $buildLicenseStats($subset);
+            if ($statsForLicense) {
+                $licenseStats[$licenseKey] = array_merge([
+                    'label' => $label,
+                    'color' => $chartColors[$licenseKey] ?? '#e8000d',
+                ], $statsForLicense);
+            }
+        }
         $activeSeries = 'sports_car';
         $activeChart = $chartSeries[$activeSeries];
         $chartCount = $activeChart['count'];
     @endphp
     <div class="driver-profile space-y-5">
-
     @if(session('status'))
         <section class="bg-green-700/80 border border-green-500 rounded-lg p-3 text-sm">{{ session('status') }}</section>
     @endif
-
 @if($errors->any())
     <section class="bg-red-700/80 border border-red-500 rounded-lg p-3 text-sm">{{ $errors->first() }}</section>
 @endif
-
 @if(!empty($iracingNotice))
     <section class="bg-amber-700/70 border border-amber-500 rounded-lg p-3 text-sm">{{ $iracingNotice }}</section>
 @endif
-
 <section class="rounded-2xl border border-[#7a0007]/60 bg-[#000000]/75 p-4 md:p-6 shadow-lg">
         <div class="grid gap-5 lg:grid-cols-12">
             <div class="lg:col-span-7 space-y-4 text-center sm:text-left">
@@ -173,16 +226,13 @@
                         </div>
                     </div>
                 </div>
-
                 <div class="flex flex-wrap justify-center sm:justify-start gap-2">
                     <span class="inline-flex h-7 w-7 items-center justify-center rounded-full border border-zinc-600 bg-zinc-900 text-[11px] text-zinc-300">X</span>
                     <span class="inline-flex h-7 w-7 items-center justify-center rounded-full border border-zinc-600 bg-zinc-900 text-[11px] text-zinc-300">IG</span>
                     <span class="inline-flex h-7 w-7 items-center justify-center rounded-full border border-zinc-600 bg-zinc-900 text-[11px] text-zinc-300">YT</span>
                     <span class="inline-flex h-7 w-7 items-center justify-center rounded-full border border-zinc-600 bg-zinc-900 text-[11px] text-zinc-300">TW</span>
                 </div>
-
                 <div class="flex flex-col sm:flex-row gap-2">
-
                     @if(!$user->iracing_linked)
                         <a href="{{ route('iracing.oauth.redirect') }}" class="w-full sm:w-auto inline-flex items-center justify-center px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-sm font-semibold">
                             Vincular cuenta iRacing
@@ -198,20 +248,17 @@
                             </button>
                         </form>
                     @endif
-
                     <form action="{{ route('logout') }}" method="POST" class="w-full sm:w-auto">
                         @csrf
                         <button type="submit" class="w-full px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-sm font-semibold">Cerrar sesión</button>
                     </form>
                 </div>
             </div>
-
             <div class="lg:col-span-5 rounded-xl border border-zinc-700/50 bg-[#101010]/85 p-3 text-center sm:text-left">
                 <div class="mb-3">
                     <p class="text-lg font-bold text-white">{{ $user->name }}</p>
                     <p class="text-xs text-zinc-400">{{ $user->iracing_customer_id ? '#'.$user->iracing_customer_id : 'No hay id de cliente' }}</p>
                 </div>
-
                 <div class="grid grid-cols-2 gap-2 text-xs">
                     <div class="rounded-lg border {{ $sportsCarBorder }} bg-zinc-900/80 p-3" style="{{ $sportsCarHex ? 'border-color: '.$sportsCarHex.';' : '' }}">
                         <p class="text-zinc-300">Sports Car</p>
@@ -249,17 +296,15 @@
                         </div>
                     </div>
                 </div>
-
                 <p class="mt-3 text-[11px] text-zinc-400"> Última actualización: {{ $lastSynced ?: '-' }}</p>
             </div>
         </div>
     </section>
-
     <section class="rounded-2xl border border-zinc-700/60 bg-[#000000]/75 p-4 md:p-6 shadow-lg">
         <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
             <h2 class="text-xl font-bold text-[#e8000d]">Historial de iRating</h2>
             <div class="flex flex-wrap gap-2 text-[11px] uppercase tracking-wide">
-                <button type="button" data-series-btn="sports_car" class="rounded-full border border-[#e8000d]/80 bg-[#7a0007]/25 px-3 py-1 text-[#e8000d]">Sports Car</button>
+                <button type="button" data-series-btn="sports_car" class="rounded-full border border-zinc-600 px-3 py-1 text-zinc-400">Sports Car</button>
                 <button type="button" data-series-btn="formula_car" class="rounded-full border border-zinc-600 px-3 py-1 text-zinc-400">Formula Car</button>
                 <button type="button" data-series-btn="oval" class="rounded-full border border-zinc-600 px-3 py-1 text-zinc-400">Oval</button>
                 <button type="button" data-series-btn="dirt_oval" class="rounded-full border border-zinc-600 px-3 py-1 text-zinc-400">Dirt Oval</button>
@@ -267,153 +312,68 @@
                 <button type="button" data-series-btn="road" class="rounded-full border border-zinc-600 px-3 py-1 text-zinc-400">Road (Retirado)</button>
             </div>
         </div>
-
-        <div id="performanceChart" data-series='@json($chartSeries)' class="rounded-xl border border-zinc-700/50 bg-[#101010]/85 p-3">
+        <div id="performanceChart" data-series='@json($chartSeries)' data-colors='@json($chartColors)' class="rounded-xl border border-zinc-700/50 bg-[#101010]/85 p-3">
             <div id="historyChart" class="h-64 w-full"></div>
             <div id="historyEmpty" class="flex h-64 items-center justify-center text-zinc-400">
                 Cargando gráfico...
             </div>
+            <p id="historyDebug" class="mt-2 text-xs text-amber-300">JS pendiente...</p>
         </div>
     </section>
-
-    <script>
-        (() => {
-            const chart = document.getElementById('performanceChart');
-            if (!chart) return;
-
-            const series = JSON.parse(chart.dataset.series || '{}');
-            const empty = document.getElementById('historyEmpty');
-            const chartContainer = document.getElementById('historyChart');
-            const buttons = document.querySelectorAll('[data-series-btn]');
-
-            if (!chartContainer) return;
-            if (typeof ApexCharts === 'undefined') {
-                empty.classList.remove('hidden');
-                empty.textContent = 'No se pudo cargar ApexCharts.';
-                return;
-            }
-
-            const baseOptions = {
-                chart: {
-                    type: 'area',
-                    height: 260,
-                    toolbar: { show: false },
-                    zoom: { enabled: false },
-                    animations: { speed: 450 },
-                    foreColor: '#a1a1aa',
-                },
-                stroke: { curve: 'smooth', width: 3 },
-                fill: {
-                    type: 'gradient',
-                    gradient: {
-                        shadeIntensity: 1,
-                        opacityFrom: 0.35,
-                        opacityTo: 0.0,
-                        stops: [0, 100],
-                    },
-                },
-                colors: ['#f2b310'],
-                grid: {
-                    borderColor: 'rgba(255,255,255,0.06)',
-                    strokeDashArray: 4,
-                    xaxis: { lines: { show: true } },
-                    yaxis: { lines: { show: true } },
-                },
-                xaxis: {
-                    type: 'datetime',
-                    labels: { datetimeUTC: false, format: 'MMM d' },
-                    tickAmount: 10,
-                },
-                yaxis: {
-                    tickAmount: 5,
-                    labels: {
-                        formatter: (value) => Math.round(value),
-                    },
-                },
-                tooltip: {
-                    x: { format: 'dd MMM yyyy' },
-                },
-                dataLabels: { enabled: false },
-            };
-
-            const initialSeries = (series && series.sports_car && series.sports_car.series) ? series.sports_car.series : [];
-            const chart = new ApexCharts(chartContainer, {
-                ...baseOptions,
-                series: [{ name: 'iRating', data: initialSeries }],
-            });
-            chart.render();
-
-            const setActive = (key) => {
-                const data = series[key];
-                if (!data) return;
-
-                const seriesData = data.series ?? [];
-                const hasData = seriesData.length > 0;
-                empty.classList.toggle('hidden', hasData);
-                chartContainer.classList.toggle('hidden', !hasData);
-                empty.textContent = hasData ? '' : 'No hay suficientes carreras para mostrar historial.';
-                chart.updateSeries([{ name: 'iRating', data: seriesData }], true);
-
-                buttons.forEach((btn) => {
-                    const isActive = btn.dataset.seriesBtn === key;
-                    btn.classList.toggle('border-[#e8000d]/80', isActive);
-                    btn.classList.toggle('bg-[#7a0007]/25', isActive);
-                    btn.classList.toggle('text-[#e8000d]', isActive);
-                    btn.classList.toggle('border-zinc-600', !isActive);
-                    btn.classList.toggle('text-zinc-400', !isActive);
-                });
-            };
-
-            buttons.forEach((btn) => {
-                btn.addEventListener('click', () => setActive(btn.dataset.seriesBtn));
-            });
-
-            setActive('sports_car');
-        })();
-    </script>
-
     <div class="grid gap-5 lg:grid-cols-2">
         <section class="rounded-2xl border border-zinc-700/60 bg-[#000000]/75 p-4 md:p-6 shadow-lg">
-            <h2 class="mb-4 text-3xl font-bold text-[#e8000d]">Estadísticas generales</h2>
-
-            <div class="grid grid-cols-3 gap-2 text-center">
-                <div class="rounded-lg border border-zinc-700 bg-[#101010] p-3">
-                    <p class="text-[11px] text-zinc-400">Victorias</p>
-                    <p class="mt-1 text-2xl font-black text-white">{{ $wins }}</p>
+            <h2 class="mb-4 text-3xl font-bold text-[#e8000d]">Estadísticas por licencia</h2>
+            @if($licenseStats !== [])
+                <div class="grid gap-4">
+                    @foreach($licenseStats as $license)
+                        <div class="rounded-xl border border-zinc-700/70 bg-[#101010]/90 p-4">
+                            <div class="mb-3 flex items-center justify-between">
+                                <p class="text-lg font-bold" style="color: {{ $license['color'] }}">{{ $license['label'] }}</p>
+                                <span class="text-xs text-zinc-400">{{ $license['total'] }} carreras</span>
+                            </div>
+                            <div class="grid grid-cols-3 gap-2 text-center">
+                                <div class="rounded-lg border border-zinc-700 bg-[#0f0f0f] p-3">
+                                    <p class="text-[11px] text-zinc-400">Victorias</p>
+                                    <p class="mt-1 text-2xl font-black text-white">{{ $license['wins'] }}</p>
+                                </div>
+                                <div class="rounded-lg border border-zinc-700 bg-[#0f0f0f] p-3">
+                                    <p class="text-[11px] text-zinc-400">Top 5</p>
+                                    <p class="mt-1 text-2xl font-black text-white">{{ $license['top5'] }}</p>
+                                </div>
+                                <div class="rounded-lg border border-zinc-700 bg-[#0f0f0f] p-3">
+                                    <p class="text-[11px] text-zinc-400">Poles</p>
+                                    <p class="mt-1 text-2xl font-black text-white">{{ $license['poles'] }}</p>
+                                </div>
+                            </div>
+                            <div class="mt-4 grid grid-cols-2 gap-2 text-sm">
+                                <div class="rounded-lg bg-[#0f0f0f] px-3 py-2 flex items-center justify-between border border-zinc-700/60">
+                                    <span class="text-zinc-400">Parrilla promedio</span>
+                                    <span class="font-semibold text-white">{{ $license['avg_start'] !== null ? number_format($license['avg_start'], 1) : '-' }}</span>
+                                </div>
+                                <div class="rounded-lg bg-[#0f0f0f] px-3 py-2 flex items-center justify-between border border-zinc-700/60">
+                                    <span class="text-zinc-400">Meta promedio</span>
+                                    <span class="font-semibold text-white">{{ $license['avg_finish'] !== null ? number_format($license['avg_finish'], 1) : '-' }}</span>
+                                </div>
+                                <div class="rounded-lg bg-[#0f0f0f] px-3 py-2 flex items-center justify-between border border-zinc-700/60">
+                                    <span class="text-zinc-400">Incidentes promedio</span>
+                                    <span class="font-semibold text-white">{{ $license['avg_inc'] !== null ? number_format($license['avg_inc'], 2) : '-' }}</span>
+                                </div>
+                                <div class="rounded-lg bg-[#0f0f0f] px-3 py-2 flex items-center justify-between border border-zinc-700/60">
+                                    <span class="text-zinc-400">Carreras totales</span>
+                                    <span class="font-semibold text-white">{{ $license['total'] }}</span>
+                                </div>
+                            </div>
+                        </div>
+                    @endforeach
                 </div>
-                <div class="rounded-lg border border-zinc-700 bg-[#101010] p-3">
-                    <p class="text-[11px] text-zinc-400">Top 5</p>
-                    <p class="mt-1 text-2xl font-black text-white">{{ $top5Count }}</p>
+            @else
+                <div class="rounded-lg border border-zinc-700/60 bg-[#101010] p-4 text-sm text-zinc-300">
+                    No hay estadísticas por licencia disponibles.
                 </div>
-                <div class="rounded-lg border border-zinc-700 bg-[#101010] p-3">
-                    <p class="text-[11px] text-zinc-400">Poles</p>
-                    <p class="mt-1 text-2xl font-black text-white">{{ $poles }}</p>
-                </div>
-            </div>
-
-            <div class="mt-4 grid grid-cols-2 gap-2 text-sm">
-                <div class="rounded-lg bg-[#101010] px-3 py-2 flex items-center justify-between border border-zinc-700/60">
-                    <span class="text-zinc-400">Posición en parrilla promedio</span>
-                    <span class="font-semibold text-white">{{ $avgStart !== null ? number_format($avgStart, 1) : '-' }}</span>
-                </div>
-                <div class="rounded-lg bg-[#101010] px-3 py-2 flex items-center justify-between border border-zinc-700/60">
-                    <span class="text-zinc-400">Posición final promedio</span>
-                    <span class="font-semibold text-white">{{ $avgFinish !== null ? number_format($avgFinish, 1) : '-' }}</span>
-                </div>
-                <div class="rounded-lg bg-[#101010] px-3 py-2 flex items-center justify-between border border-zinc-700/60">
-                    <span class="text-zinc-400">Incidentes promedio</span>
-                    <span class="font-semibold text-white">{{ $avgInc !== null ? number_format($avgInc, 2) : '-' }}</span>
-                </div>
-                <div class="rounded-lg bg-[#101010] px-3 py-2 flex items-center justify-between border border-zinc-700/60">
-                    <span class="text-zinc-400">Carreras totales</span>
-                    <span class="font-semibold text-white">{{ $totalRaces }}</span>
-                </div>
-            </div>
+            @endif
         </section>
-
         <section class="rounded-2xl border border-zinc-700/60 bg-[#000000]/75 p-4 md:p-6 shadow-lg">
             <h2 class="mb-4 text-3xl font-bold text-[#e8000d]">Estadísticas 2026</h2>
-
             <div class="grid gap-2">
                 <div class="rounded-lg bg-[#101010] border border-zinc-700/60 px-3 py-2 flex items-center justify-between">
                     <span class="text-zinc-400 text-sm">Carreras</span>
@@ -438,10 +398,8 @@
             </div>
         </section>
     </div>
-
     <section class="rounded-2xl border border-zinc-700/60 bg-[#000000]/75 p-4 md:p-6 shadow-lg">
         <h2 class="mb-4 text-3xl font-bold text-[#e8000d]">Últimas carreras</h2>
-
         @if($user->iracing_linked)
             <div class="space-y-3">
                 @forelse($results as $race)
@@ -459,7 +417,6 @@
                                 P{{ $race->finish_position ?? '-' }}
                             </div>
                         </div>
-
                         <div class="grid gap-2 p-3 md:grid-cols-4">
                             <div class="rounded-md bg-zinc-700/50 px-2 py-2">
                                 <p class="text-xs text-zinc-300">iRating</p>
@@ -485,14 +442,19 @@
                         </div>
                     </article>
                 @empty
-                    <div class="rounded-xl border border-zinc-700/50 bg-[#0d0f1b]/85 p-4 text-zinc-300">Todavia no hay carreras cacheadas.</div>
+                    <div class="rounded-xl border border-zinc-700/50 bg-[#0d0f1b]/85 p-4 text-zinc-300">Todavía no hay carreras cacheadas.</div>
                 @endforelse
             </div>
         @else
             <div class="rounded-xl border border-zinc-700/50 bg-[#101010]/85 p-4 text-zinc-300">
-                Sin vincular iRacing no se cargaran carreras y estadisticas.
+                Sin vincular iRacing no se cargarán carreras y estadísticas.
             </div>
         @endif
     </section>
     </div>
 @endsection
+
+
+
+
+

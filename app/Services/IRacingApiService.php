@@ -174,7 +174,9 @@ class IRacingApiService
     public function getWithBearerToken(string $endpoint, string $accessToken, array $query = []): array
     {
         $config = config('services.iracing');
-        $url = rtrim($config['api_base_url'], '/').'/'.ltrim($endpoint, '/');
+        $url = str_starts_with($endpoint, 'http')
+            ? $endpoint
+            : rtrim($config['api_base_url'], '/').'/'.ltrim($endpoint, '/');
 
         $response = Http::withToken($accessToken)->get($url, $query);
         $payload = $this->decodeResponse($response);
@@ -225,7 +227,11 @@ class IRacingApiService
         $json = $response->json();
 
         if (! is_array($json)) {
-            throw new RuntimeException('iRacing response is not valid JSON.');
+            $body = $response->body();
+            $summary = $body !== '' ? substr($body, 0, 500) : 'empty response body';
+            $contentType = $response->header('Content-Type') ?? 'unknown';
+
+            throw new RuntimeException('iRacing response is not valid JSON. Content-Type: '.$contentType.'. Body: '.$summary);
         }
 
         return $json;
