@@ -11,6 +11,7 @@ use RuntimeException;
 
 class IRacingApiService
 {
+    // Construye la URL de autorización OAuth (compatible con PKCE).
     public function buildAuthorizationUrl(string $state, ?string $codeChallenge = null, string $codeChallengeMethod = 'S256'): string
     {
         $config = config('services.iracing');
@@ -64,6 +65,7 @@ class IRacingApiService
         return rtrim(strtr(base64_encode($hash), '+/', '-_'), '=');
     }
 
+    // Intercambia el code OAuth + verifier por access/refresh tokens.
     public function exchangeCodeForToken(string $code, ?string $codeVerifier = null): array
     {
         $config = config('services.iracing');
@@ -100,6 +102,7 @@ class IRacingApiService
         return $data;
     }
 
+    // Refresca el access token usando el refresh token guardado.
     public function refreshAccessToken(string $refreshToken): array
     {
         $config = config('services.iracing');
@@ -130,6 +133,7 @@ class IRacingApiService
         return $data;
     }
 
+    // Flujo opcional server-to-server (no se usa en el dashboard actual).
     public function requestServerToken(): array
     {
         $config = config('services.iracing');
@@ -163,6 +167,7 @@ class IRacingApiService
         return $data;
     }
 
+    // iRacing requiere secret enmascarado (sha256 + base64) en algunos flujos.
     public function maskSecret(string $secret, string $id): string
     {
         $normalizedId = strtolower(trim($id));
@@ -171,6 +176,7 @@ class IRacingApiService
         return base64_encode(hash('sha256', $combined, true));
     }
 
+    // GET con bearer token; soporta respuestas con signed URL.
     public function getWithBearerToken(string $endpoint, string $accessToken, array $query = []): array
     {
         $config = config('services.iracing');
@@ -184,6 +190,7 @@ class IRacingApiService
         return $this->resolveSignedUrlPayload($payload, $accessToken);
     }
 
+    // Atajo: usa el access token guardado del usuario.
     public function getForUser(User $user, string $endpoint, array $query = []): array
     {
         if (empty($user->access_token)) {
@@ -193,6 +200,7 @@ class IRacingApiService
         return $this->getWithBearerToken($endpoint, $user->access_token, $query);
     }
 
+    // Convierte expires_in (segundos) a timestamp Carbon.
     public function accessTokenExpiresAt(array $tokenPayload): Carbon
     {
         $ttl = (int) Arr::get($tokenPayload, 'expires_in', 600);
@@ -224,6 +232,7 @@ class IRacingApiService
             throw new RuntimeException('iRacing request failed with status '.$response->status().'. Response: '.$summary);
         }
 
+        // iRacing puede responder con signed URL; primero validamos JSON.
         $json = $response->json();
 
         if (! is_array($json)) {
@@ -241,6 +250,7 @@ class IRacingApiService
     {
         $signedUrl = Arr::get($payload, 'link');
 
+        // Si hay signed URL, seguimos ese link para obtener los datos reales.
         if (! is_string($signedUrl) || $signedUrl === '') {
             return $payload;
         }

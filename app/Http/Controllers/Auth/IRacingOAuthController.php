@@ -20,6 +20,7 @@ class IRacingOAuthController extends Controller
             abort(403);
         }
 
+        // Inicio OAuth (PKCE): guardamos verifier+state en sesión y redirigimos a iRacing.
         $state = Str::random(40);
         $codeVerifier = $this->iracingApiService->createPkceCodeVerifier();
         $codeChallenge = $this->iracingApiService->createPkceCodeChallenge($codeVerifier);
@@ -40,6 +41,7 @@ class IRacingOAuthController extends Controller
 
     public function callback(Request $request)
     {
+        // Callback OAuth: validamos state, intercambiamos code por token y pedimos member info.
         if ($request->filled('error')) {
             $description = $request->string('error_description')->toString();
             $message = $description !== '' ? $description : 'iRacing devolvio un error de OAuth.';
@@ -74,6 +76,7 @@ class IRacingOAuthController extends Controller
         }
 
         try {
+            // El intercambio de token + member info nos da el cust_id para vincular la cuenta.
             $tokenPayload = $this->iracingApiService->exchangeCodeForToken($request->string('code')->toString(), $codeVerifier);
             $memberInfo = $this->iracingApiService->getWithBearerToken('data/member/info', $tokenPayload['access_token']);
         } catch (RuntimeException $exception) {
@@ -100,6 +103,7 @@ class IRacingOAuthController extends Controller
 
         $user = $request->user();
 
+        // Guardamos la vinculación + tokens para las llamadas del dashboard.
         $user->forceFill([
             'name' => $displayName ?: $user->name,
             'iracing_customer_id' => $custId,
@@ -118,6 +122,7 @@ class IRacingOAuthController extends Controller
             abort(403);
         }
 
+        // Limpiamos la vinculación + tokens cuando el usuario desvincula iRacing.
         $request->user()->forceFill([
             'iracing_linked' => false,
             'iracing_customer_id' => null,

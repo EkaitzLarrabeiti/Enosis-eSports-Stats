@@ -31,6 +31,7 @@ class DriverController extends Controller
         $results = collect();
         $iracingNotice = null;
 
+        // Comprobaciones de vinculación: avisos si faltan tokens o están caducados.
         if ($user->iracing_linked && empty($user->access_token)) {
             $iracingNotice = 'Tu cuenta de iRacing esta vinculada, pero no hay token de acceso guardado. Vuelve a vincular la cuenta.';
         }
@@ -46,14 +47,31 @@ class DriverController extends Controller
 
         if ($user->iracing_linked && ! empty($user->access_token)) {
             try {
+                $currentYear = now()->year;
+                // Fuentes del dashboard:
+                // - member/info: perfil + cust_id
+                // - member_summary: snapshot de SR/iRating
+                // - member_recent_races: últimas carreras (tarjetas + tabla)
                 $memberInfo = $this->iracingApiService->getForUser($user, 'data/member/info');
                 $summary = $this->iracingApiService->getForUser($user, 'data/stats/member_summary');
                 $recentRaces = $this->iracingApiService->getForUser($user, 'data/stats/member_recent_races');
+                $yearly = $this->iracingApiService->getForUser($user, 'data/stats/member_yearly');
+                $yearRecap = $this->iracingApiService->getForUser($user, 'data/stats/member_recap', [
+                    'year' => $currentYear,
+                ]);
+                $career = $this->iracingApiService->getForUser($user, 'data/stats/member_career');
 
+                // Normalizamos carreras para la UI (license_key, deltas de iRating, etc.).
                 $allResults = $this->mapRecentRaces(collect(data_get($recentRaces, 'races', [])));
                 $results = $allResults->take(10)->values();
+                // Construimos estadísticas agregadas con últimos resultados + summary.
                 $stats = $this->buildLiveStats($summary, $results, $memberInfo);
+                // El gráfico usa chart_data por categoría de licencia.
                 $chartSeriesFromApi = $this->buildChartSeriesFromApi($user);
+                // Estadísticas por licencia desde inicio (member_career).
+                $careerLicenseStats = $this->buildCareerLicenseStats($career);
+                $yearStats = $this->buildYearlyStats($yearly, $currentYear);
+                $yearFavorites = $this->buildYearRecapFavorites($yearRecap);
             } catch (RuntimeException $exception) {
                 report($exception);
                 $iracingNotice = 'No se pudieron cargar los datos de iRacing. Intenta vincular la cuenta de nuevo.';
@@ -69,12 +87,17 @@ class DriverController extends Controller
             'results' => $results,
             'chartResults' => $allResults ?? $results,
             'chartSeriesFromApi' => $chartSeriesFromApi ?? null,
+            'careerLicenseStats' => $careerLicenseStats ?? [],
+            'yearStats' => $yearStats ?? [],
+            'yearFavorites' => $yearFavorites ?? [],
+            'currentYear' => $currentYear ?? now()->year,
             'iracingNotice' => $iracingNotice,
         ]);
     }
 
     private function buildLiveStats(array $summary, Collection $results, ?array $licensePayload): array
     {
+        // Construimos stats principales para las tarjetas del header.
         $wins = $results->where('finish_position', 1)->count();
         $podiums = $results->whereIn('finish_position', [1, 2, 3])->count();
         $poles = $results->where('starting_position', 1)->count();
@@ -101,6 +124,7 @@ class DriverController extends Controller
     private function mapRecentRaces(Collection $races): Collection
     {
         return $races->map(function (array $race) {
+            // Normalizamos el payload de carreras a una forma estable para la UI.
             $startTime = data_get($race, 'session_start_time');
             $raceDate = $startTime ? Carbon::parse($startTime) : null;
             $oldRating = (int) data_get($race, 'oldi_rating', 0);
@@ -477,6 +501,13 @@ class DriverController extends Controller
             }
         }
 
+        if (is_string($categoryId) && $categoryId !== '' && ! is_numeric($categoryId)) {
+            $normalizedCategory = $this->normalizeLicenseKey($categoryId);
+            if ($normalizedCategory) {
+                return $normalizedCategory;
+            }
+        }
+
         return match ((int) $categoryId) {
             1 => 'oval',
             3 => 'dirt_oval',
@@ -515,6 +546,7 @@ class DriverController extends Controller
             }
 
             try {
+                // chart_data devuelve histórico de iRating por categoría.
                 $cacheKey = 'iracing.chart_data.'.(string) $user->id.'.'.(string) $categoryId.'.1';
                 $payload = cache()->remember($cacheKey, 600, function () use ($user, $query) {
                     return $this->iracingApiService->getForUser($user, 'data/member/chart_data', $query);
@@ -547,6 +579,323 @@ class DriverController extends Controller
 
         return $series;
     }
+
+    private function buildCareerLicenseStats(array $payload): array
+    {
+        $statsList = data_get($payload, 'stats')
+            ?? data_get($payload, 'data.stats')
+            ?? data_get($payload, 'data')
+            ?? $payload;
+
+        if (! is_array($statsList)) {
+            return [];
+        }
+
+        $results = [];
+
+        foreach ($statsList as $item) {
+            if (is_object($item)) {
+                $item = (array) $item;
+            }
+
+            if (! is_array($item)) {
+                continue;
+            }
+
+            $categoryName = data_get($item, 'category')
+                ?? data_get($item, 'category_name')
+                ?? data_get($item, 'license_category')
+                ?? data_get($item, 'license_category_name');
+            $categoryId = data_get($item, 'category_id') ?? data_get($item, 'license_category_id');
+            $licenseKey = $this->resolveLicenseKey([
+                'category_id' => $categoryId,
+                'category' => $categoryName,
+                'category_name' => $categoryName,
+                'group_name' => $categoryName,
+            ]);
+
+            if (! $licenseKey) {
+                continue;
+            }
+
+            $total = data_get($item, 'starts')
+                ?? data_get($item, 'start_count')
+                ?? data_get($item, 'races')
+                ?? data_get($item, 'total_starts')
+                ?? 0;
+
+            if ((int) $total <= 0) {
+                continue;
+            }
+
+            $results[$licenseKey] = [
+                'total' => (int) $total,
+                'wins' => (int) (data_get($item, 'wins') ?? 0),
+                'top5' => (int) (data_get($item, 'top5') ?? 0),
+                'poles' => (int) (data_get($item, 'poles') ?? 0),
+                'laps_led' => (int) (
+                    data_get($item, 'laps_led')
+                    ?? data_get($item, 'laps_lead')
+                    ?? data_get($item, 'laps_led_count')
+                    ?? data_get($item, 'lead_laps')
+                    ?? data_get($item, 'led_laps')
+                    ?? data_get($item, 'laps_leader')
+                    ?? 0
+                ),
+                'avg_start' => data_get($item, 'avg_start_position')
+                    ?? data_get($item, 'avg_start')
+                    ?? null,
+                'avg_finish' => data_get($item, 'avg_finish_position')
+                    ?? data_get($item, 'avg_finish')
+                    ?? null,
+                'avg_inc' => data_get($item, 'avg_incidents')
+                    ?? data_get($item, 'avg_inc')
+                    ?? null,
+            ];
+        }
+
+        return $results;
+    }
+
+    private function buildYearlyStats(array $payload, int $year): array
+    {
+        $statsList = data_get($payload, 'stats')
+            ?? data_get($payload, 'data.stats')
+            ?? data_get($payload, 'data')
+            ?? $payload;
+
+        if (! is_array($statsList)) {
+            return [];
+        }
+
+        if (! $this->isListArray($statsList)) {
+            $normalized = [];
+            foreach ($statsList as $key => $value) {
+                if (is_numeric($key) && is_array($value)) {
+                    $normalized[] = [
+                        'year' => (int) $key,
+                        'stats' => $value,
+                    ];
+                }
+            }
+            if ($normalized !== []) {
+                $statsList = $normalized;
+            }
+        }
+
+        $totals = [
+            'starts' => 0,
+            'wins' => 0,
+            'top5' => 0,
+            'poles' => 0,
+            'laps' => 0,
+            'laps_led' => 0,
+        ];
+
+        $avgBuckets = [
+            'avg_start' => ['sum' => 0.0, 'weight' => 0],
+            'avg_finish' => ['sum' => 0.0, 'weight' => 0],
+            'avg_inc' => ['sum' => 0.0, 'weight' => 0],
+        ];
+
+        $processItem = function (array $item, int $targetYear) use (&$totals, &$avgBuckets): void {
+            $itemYear = (int) (data_get($item, 'year') ?? data_get($item, 'season_year') ?? 0);
+            if ($itemYear !== 0 && $itemYear !== $targetYear) {
+                return;
+            }
+
+            $starts = (int) (
+                data_get($item, 'starts')
+                ?? data_get($item, 'start_count')
+                ?? data_get($item, 'races')
+                ?? data_get($item, 'total_starts')
+                ?? 0
+            );
+
+            if ($starts <= 0) {
+                return;
+            }
+
+            $totals['starts'] += $starts;
+            $totals['wins'] += (int) (data_get($item, 'wins') ?? 0);
+            $totals['top5'] += (int) (data_get($item, 'top5') ?? 0);
+            $totals['poles'] += (int) (data_get($item, 'poles') ?? 0);
+            $totals['laps'] += (int) (data_get($item, 'laps') ?? 0);
+            $totals['laps_led'] += (int) (
+                data_get($item, 'laps_led')
+                ?? data_get($item, 'laps_lead')
+                ?? data_get($item, 'laps_led_count')
+                ?? data_get($item, 'lead_laps')
+                ?? data_get($item, 'led_laps')
+                ?? data_get($item, 'laps_leader')
+                ?? 0
+            );
+
+            $avgStart = data_get($item, 'avg_start_position')
+                ?? data_get($item, 'avg_start');
+            if ($avgStart !== null && $avgStart !== '') {
+                $avgBuckets['avg_start']['sum'] += (float) $avgStart * $starts;
+                $avgBuckets['avg_start']['weight'] += $starts;
+            }
+
+            $avgFinish = data_get($item, 'avg_finish_position')
+                ?? data_get($item, 'avg_finish');
+            if ($avgFinish !== null && $avgFinish !== '') {
+                $avgBuckets['avg_finish']['sum'] += (float) $avgFinish * $starts;
+                $avgBuckets['avg_finish']['weight'] += $starts;
+            }
+
+            $avgInc = data_get($item, 'avg_incidents')
+                ?? data_get($item, 'avg_inc');
+            if ($avgInc !== null && $avgInc !== '') {
+                $avgBuckets['avg_inc']['sum'] += (float) $avgInc * $starts;
+                $avgBuckets['avg_inc']['weight'] += $starts;
+            }
+        };
+
+        foreach ($statsList as $item) {
+            if (is_object($item)) {
+                $item = (array) $item;
+            }
+
+            if (! is_array($item)) {
+                continue;
+            }
+
+            if (isset($item['stats']) && is_array($item['stats']) && ! isset($item['starts'])) {
+                $nestedYear = (int) (data_get($item, 'year') ?? data_get($item, 'season_year') ?? $year);
+                foreach ($item['stats'] as $nested) {
+                    if (is_object($nested)) {
+                        $nested = (array) $nested;
+                    }
+                    if (! is_array($nested)) {
+                        continue;
+                    }
+                    if (! isset($nested['year'])) {
+                        $nested['year'] = $nestedYear;
+                    }
+                    $processItem($nested, $year);
+                }
+                continue;
+            }
+
+            $processItem($item, $year);
+        }
+
+        $avgStart = $avgBuckets['avg_start']['weight'] > 0
+            ? $avgBuckets['avg_start']['sum'] / $avgBuckets['avg_start']['weight']
+            : null;
+        $avgFinish = $avgBuckets['avg_finish']['weight'] > 0
+            ? $avgBuckets['avg_finish']['sum'] / $avgBuckets['avg_finish']['weight']
+            : null;
+        $avgInc = $avgBuckets['avg_inc']['weight'] > 0
+            ? $avgBuckets['avg_inc']['sum'] / $avgBuckets['avg_inc']['weight']
+            : null;
+
+        $starts = $totals['starts'];
+        $winPct = $starts > 0 ? round(($totals['wins'] / $starts) * 100, 1) : 0;
+        $top5Pct = $starts > 0 ? round(($totals['top5'] / $starts) * 100, 1) : 0;
+
+        return array_merge($totals, [
+            'avg_start' => $avgStart,
+            'avg_finish' => $avgFinish,
+            'avg_inc' => $avgInc,
+            'win_pct' => $winPct,
+            'top5_pct' => $top5Pct,
+        ]);
+    }
+
+    private function buildYearRecapFavorites(array $payload): array
+    {
+        $stats = data_get($payload, 'stats')
+            ?? data_get($payload, 'data.stats')
+            ?? $payload;
+
+        $track = data_get($stats, 'favorite_track')
+            ?? data_get($payload, 'favorite_track')
+            ?? data_get($payload, 'favorite_track_name')
+            ?? data_get($payload, 'favorite.track')
+            ?? data_get($payload, 'favorite.track_name')
+            ?? data_get($payload, 'track')
+            ?? data_get($payload, 'track_name')
+            ?? data_get($payload, 'data.favorite_track')
+            ?? data_get($payload, 'data.favorite_track_name')
+            ?? data_get($payload, 'data.favorite.track')
+            ?? data_get($payload, 'data.favorite.track_name')
+            ?? data_get($payload, 'data.track')
+            ?? data_get($payload, 'data.track_name');
+        $car = data_get($stats, 'favorite_car')
+            ?? data_get($payload, 'favorite_car')
+            ?? data_get($payload, 'favorite.car');
+        $series = data_get($payload, 'favorite_series')
+            ?? data_get($payload, 'favorite_series_name')
+            ?? data_get($payload, 'favorite.series')
+            ?? data_get($payload, 'favorite.series_name')
+            ?? data_get($payload, 'series')
+            ?? data_get($payload, 'series_name')
+            ?? data_get($payload, 'data.favorite_series')
+            ?? data_get($payload, 'data.favorite_series_name')
+            ?? data_get($payload, 'data.favorite.series')
+            ?? data_get($payload, 'data.favorite.series_name')
+            ?? data_get($payload, 'data.series')
+            ?? data_get($payload, 'data.series_name');
+
+        if ($series === null && $car !== null) {
+            $series = $car;
+        }
+
+        return [
+            'track' => $this->extractNameValue($track, ['track_name', 'name']),
+            'car' => $this->extractNameValue($series, ['car_name', 'series_name', 'name']),
+            'track_image' => $this->extractImageValue($track, ['track_logo', 'logo', 'image', 'image_url']),
+            'car_image' => $this->extractImageValue($series, ['car_image', 'image', 'image_url', 'logo']),
+        ];
+    }
+
+    private function extractNameValue($value, array $keys): ?string
+    {
+        if (is_string($value)) {
+            $trimmed = trim($value);
+            return $trimmed !== '' ? $trimmed : null;
+        }
+
+        if (is_object($value)) {
+            $value = (array) $value;
+        }
+
+        if (is_array($value)) {
+            foreach ($keys as $key) {
+                if (isset($value[$key]) && is_string($value[$key]) && trim($value[$key]) !== '') {
+                    return trim($value[$key]);
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private function extractImageValue($value, array $keys): ?string
+    {
+        if (is_string($value)) {
+            $trimmed = trim($value);
+            return $trimmed !== '' ? $trimmed : null;
+        }
+
+        if (is_object($value)) {
+            $value = (array) $value;
+        }
+
+        if (is_array($value)) {
+            foreach ($keys as $key) {
+                if (isset($value[$key]) && is_string($value[$key]) && trim($value[$key]) !== '') {
+                    return trim($value[$key]);
+                }
+            }
+        }
+
+        return null;
+    }
+
 
     private function normalizeChartSeries(array $payload): array
     {

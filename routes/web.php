@@ -35,6 +35,7 @@ Route::middleware('guest')->group(function () {
 
 Route::post('/logout', [LoginController::class, 'logout'])->name('logout')->middleware('auth');
 
+// Flujo de vinculación OAuth de iRacing (solo pilotos).
 Route::middleware(['auth', 'role:driver'])->group(function () {
     Route::get('/auth/iracing/redirect', [IRacingOAuthController::class, 'redirect'])->name('iracing.oauth.redirect');
     Route::get('/auth/iracing/callback', [IRacingOAuthController::class, 'callback'])->name('iracing.oauth.callback');
@@ -59,6 +60,7 @@ Route::get('/dashboard', function () {
     return redirect()->route('manager.dashboard');
 })->name('dashboard')->middleware('auth');
 
+// Dashboard del piloto: refresca token de iRacing antes de cargar datos.
 Route::middleware(['auth', 'iracing.refresh', 'role:driver'])->group(function () {
     Route::get('/driver/profile', [DriverController::class, 'profile'])->name('driver.profile');
 });

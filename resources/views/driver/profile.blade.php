@@ -40,7 +40,22 @@
 @endpush
 @section('content')
     @php
-        $totalRaces = $results->count();
+        $yearStats = (array) ($yearStats ?? []);
+        $yearFavorites = (array) ($yearFavorites ?? []);
+        $currentYear = $currentYear ?? now()->year;
+        $yearRaces = (int) data_get($yearStats, 'starts', 0);
+        $yearWins = (int) data_get($yearStats, 'wins', 0);
+        $yearTop5 = (int) data_get($yearStats, 'top5', 0);
+        $yearWinRate = $yearRaces > 0 ? round(($yearWins / $yearRaces) * 100, 1) : 0;
+        $yearTop5Rate = $yearRaces > 0 ? round(($yearTop5 / $yearRaces) * 100, 1) : 0;
+        $yearFavoriteCar = (string) (data_get($yearFavorites, 'car') ?? '');
+        $yearFavoriteTrack = (string) (data_get($yearFavorites, 'track') ?? '');
+        $yearFavoriteCarImage = (string) (data_get($yearFavorites, 'car_image') ?? '');
+        $yearFavoriteTrackImage = (string) (data_get($yearFavorites, 'track_image') ?? '');
+        $yearLaps = (int) data_get($yearStats, 'laps', 0);
+        $yearLapsLed = (int) data_get($yearStats, 'laps_led', 0);
+        $yearAvgStart = data_get($yearStats, 'avg_start');
+        $yearAvgFinish = data_get($yearStats, 'avg_finish');
         $wins = (int) data_get($stats, 'wins', 0);
         $podiums = (int) data_get($stats, 'podiums', 0);
         $poles = (int) data_get($stats, 'poles', 0);
@@ -82,14 +97,6 @@
         $dirtOvalHex = (string) data_get($dirtOval, 'class_color_hex', '');
         $currentIRating = (int) (data_get($sportsCar, 'ir') ?? data_get($formulaCar, 'ir') ?? data_get($oval, 'ir') ?? data_get($stats, 'irating', 0));
         $safetyRating = (string) (data_get($sportsCar, 'sr') ?? data_get($formulaCar, 'sr') ?? data_get($oval, 'sr') ?? data_get($stats, 'safety_rating', '-'));
-        $top5Count = $results->filter(fn ($race) => (int) ($race->finish_position ?? 999) <= 5)->count();
-        $winRate = $totalRaces > 0 ? round(($wins / $totalRaces) * 100, 1) : 0;
-        $top5Rate = $totalRaces > 0 ? round(($top5Count / $totalRaces) * 100, 1) : 0;
-        $avgStart = $results->whereNotNull('starting_position')->avg('starting_position');
-        $avgFinish = $results->whereNotNull('finish_position')->avg('finish_position');
-        $avgInc = $results->whereNotNull('incidents')->avg('incidents');
-        $favoriteTrack = $results->pluck('track_name')->filter()->countBy()->sortDesc()->keys()->first();
-        $favoriteSeries = $results->pluck('series_name')->filter()->countBy()->sortDesc()->keys()->first();
         $nameInitial = strtoupper(substr((string) $user->name, 0, 1));
         $memberSince = optional($user->created_at)->format('M Y');
         $lastSyncedValue = data_get($stats, 'last_synced_at');
@@ -161,40 +168,16 @@
             'dirt_oval' => 'Dirt Oval',
             'road' => 'Road (Retirado)',
         ];
-        $buildLicenseStats = function ($collection) {
-            $collection = $collection->filter(fn ($race) => $race->finish_position !== null || $race->starting_position !== null);
-            $total = $collection->count();
-            if ($total <= 0) {
-                return null;
-            }
-
-            $winsCount = $collection->where('finish_position', 1)->count();
-            $top5 = $collection->filter(fn ($race) => (int) ($race->finish_position ?? 999) <= 5)->count();
-            $polesCount = $collection->where('starting_position', 1)->count();
-            $avgStartPos = $collection->whereNotNull('starting_position')->avg('starting_position');
-            $avgFinishPos = $collection->whereNotNull('finish_position')->avg('finish_position');
-            $avgIncidents = $collection->whereNotNull('incidents')->avg('incidents');
-
-            return [
-                'total' => $total,
-                'wins' => $winsCount,
-                'top5' => $top5,
-                'poles' => $polesCount,
-                'avg_start' => $avgStartPos,
-                'avg_finish' => $avgFinishPos,
-                'avg_inc' => $avgIncidents,
-            ];
-        };
+        $careerLicenseStats = (array) ($careerLicenseStats ?? []);
         $licenseStats = [];
         foreach ($licenseLabels as $licenseKey => $label) {
-            $subset = $chartSource->where('license_key', $licenseKey);
-            $statsForLicense = $buildLicenseStats($subset);
-            if ($statsForLicense) {
-                $licenseStats[$licenseKey] = array_merge([
-                    'label' => $label,
-                    'color' => $chartColors[$licenseKey] ?? '#e8000d',
-                ], $statsForLicense);
+            if (! isset($careerLicenseStats[$licenseKey])) {
+                continue;
             }
+            $licenseStats[$licenseKey] = array_merge([
+                'label' => $label,
+                'color' => $chartColors[$licenseKey] ?? '#e8000d',
+            ], $careerLicenseStats[$licenseKey]);
         }
         $activeSeries = 'sports_car';
         $activeChart = $chartSeries[$activeSeries];
@@ -320,13 +303,13 @@
             <p id="historyDebug" class="mt-2 text-xs text-amber-300">JS pendiente...</p>
         </div>
     </section>
-    <div class="grid gap-5 lg:grid-cols-2">
+    <div class="space-y-5">
         <section class="rounded-2xl border border-zinc-700/60 bg-[#000000]/75 p-4 md:p-6 shadow-lg">
             <h2 class="mb-4 text-3xl font-bold text-[#e8000d]">Estadísticas por licencia</h2>
             @if($licenseStats !== [])
-                <div class="grid gap-4">
+                <div class="flex flex-col gap-4 lg:flex-row lg:flex-wrap">
                     @foreach($licenseStats as $license)
-                        <div class="rounded-xl border border-zinc-700/70 bg-[#101010]/90 p-4">
+                        <div class="rounded-xl border border-zinc-700/70 bg-[#101010]/90 p-4 lg:flex-1 lg:min-w-[260px] lg:max-w-[340px]">
                             <div class="mb-3 flex items-center justify-between">
                                 <p class="text-lg font-bold" style="color: {{ $license['color'] }}">{{ $license['label'] }}</p>
                                 <span class="text-xs text-zinc-400">{{ $license['total'] }} carreras</span>
@@ -346,21 +329,21 @@
                                 </div>
                             </div>
                             <div class="mt-4 grid grid-cols-2 gap-2 text-sm">
-                                <div class="rounded-lg bg-[#0f0f0f] px-3 py-2 flex items-center justify-between border border-zinc-700/60">
+                                <div class="rounded-lg bg-[#0f0f0f] px-3 py-2 flex items-center justify-between">
                                     <span class="text-zinc-400">Parrilla promedio</span>
-                                    <span class="font-semibold text-white">{{ $license['avg_start'] !== null ? number_format($license['avg_start'], 1) : '-' }}</span>
+                                    <span class="font-semibold text-white">{{ $license['avg_start'] !== null ? number_format($license['avg_start'], 0) : '-' }}</span>
                                 </div>
-                                <div class="rounded-lg bg-[#0f0f0f] px-3 py-2 flex items-center justify-between border border-zinc-700/60">
+                                <div class="rounded-lg bg-[#0f0f0f] px-3 py-2 flex items-center justify-between">
                                     <span class="text-zinc-400">Meta promedio</span>
-                                    <span class="font-semibold text-white">{{ $license['avg_finish'] !== null ? number_format($license['avg_finish'], 1) : '-' }}</span>
+                                    <span class="font-semibold text-white">{{ $license['avg_finish'] !== null ? number_format($license['avg_finish'], 0) : '-' }}</span>
                                 </div>
-                                <div class="rounded-lg bg-[#0f0f0f] px-3 py-2 flex items-center justify-between border border-zinc-700/60">
+                                <div class="rounded-lg bg-[#0f0f0f] px-3 py-2 flex items-center justify-between">
                                     <span class="text-zinc-400">Incidentes promedio</span>
-                                    <span class="font-semibold text-white">{{ $license['avg_inc'] !== null ? number_format($license['avg_inc'], 2) : '-' }}</span>
+                                    <span class="font-semibold text-white">{{ $license['avg_inc'] !== null ? number_format($license['avg_inc'], 1) : '-' }}</span>
                                 </div>
-                                <div class="rounded-lg bg-[#0f0f0f] px-3 py-2 flex items-center justify-between border border-zinc-700/60">
-                                    <span class="text-zinc-400">Carreras totales</span>
-                                    <span class="font-semibold text-white">{{ $license['total'] }}</span>
+                                <div class="rounded-lg bg-[#0f0f0f] px-3 py-2 flex items-center justify-between">
+                                    <span class="text-zinc-400">Vueltas lideradas</span>
+                                    <span class="font-semibold text-white">{{ $license['laps_led'] ?? '-' }}</span>
                                 </div>
                             </div>
                         </div>
@@ -373,27 +356,77 @@
             @endif
         </section>
         <section class="rounded-2xl border border-zinc-700/60 bg-[#000000]/75 p-4 md:p-6 shadow-lg">
-            <h2 class="mb-4 text-3xl font-bold text-[#e8000d]">Estadísticas 2026</h2>
-            <div class="grid gap-2">
-                <div class="rounded-lg bg-[#101010] border border-zinc-700/60 px-3 py-2 flex items-center justify-between">
-                    <span class="text-zinc-400 text-sm">Carreras</span>
-                    <span class="text-white font-bold">{{ $totalRaces }}</span>
+            <h2 class="mb-4 text-3xl font-bold text-[#e8000d]">Estadísticas {{ $currentYear }}</h2>
+            <div class="grid gap-4 lg:items-start">
+                <div class="grid grid-cols-1 gap-3 lg:grid-cols-2">
+                    <div class="rounded-xl border border-zinc-700/60 bg-gradient-to-br from-[#0b0b0b] via-[#111111] to-[#0b0b0b] px-3 py-3">
+                        <div class="flex flex-col gap-3">
+                            <div class="aspect-video w-full overflow-hidden rounded-xl border border-zinc-600/70 bg-zinc-900 shadow-lg">
+                                @if($yearFavoriteCarImage)
+                                    <img src="{{ $yearFavoriteCarImage }}" alt="{{ $yearFavoriteCar ?: 'Coche favorito' }}" class="h-full w-full object-contain" loading="lazy">
+                                @endif
+                            </div>
+                            <div>
+                                <p class="text-xs uppercase tracking-wide text-zinc-400">Coche favorito</p>
+                                <p class="text-lg font-bold text-white">{{ $yearFavoriteCar ?: '-' }}</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="rounded-xl border border-zinc-700/60 bg-gradient-to-br from-[#0b0b0b] via-[#111111] to-[#0b0b0b] px-3 py-3">
+                        <div class="flex flex-col gap-3">
+                            <div class="aspect-video w-full overflow-hidden rounded-xl border border-zinc-600/70 bg-zinc-900 shadow-lg">
+                                @if($yearFavoriteTrackImage)
+                                    <img src="{{ $yearFavoriteTrackImage }}" alt="{{ $yearFavoriteTrack ?: 'Circuito favorito' }}" class="h-full w-full object-contain" loading="lazy">
+                                @endif
+                            </div>
+                            <div>
+                                <p class="text-xs uppercase tracking-wide text-zinc-400">Circuito favorito</p>
+                                <p class="text-lg font-bold text-white">{{ $yearFavoriteTrack ?: '-' }}</p>
+                            </div>
+                        </div>
+                    </div>
                 </div>
-                <div class="rounded-lg bg-[#101010] border border-zinc-700/60 px-3 py-2 flex items-center justify-between">
-                    <span class="text-zinc-400 text-sm">Victorias</span>
-                    <span class="text-[#e8000d] font-bold">{{ number_format($winRate, 1) }}%</span>
-                </div>
-                <div class="rounded-lg bg-[#101010] border border-zinc-700/60 px-3 py-2 flex items-center justify-between">
-                    <span class="text-zinc-400 text-sm">Top 5</span>
-                    <span class="text-sky-300 font-bold">{{ number_format($top5Rate, 1) }}%</span>
-                </div>
-                <div class="rounded-lg bg-[#101010] border border-zinc-700/60 px-3 py-2 flex items-center justify-between">
-                    <span class="text-zinc-400 text-sm">Serie favorita</span>
-                    <span class="text-white font-semibold text-right">{{ $favoriteSeries ?: '-' }}</span>
-                </div>
-                <div class="rounded-lg bg-[#101010] border border-zinc-700/60 px-3 py-2 flex items-center justify-between">
-                    <span class="text-zinc-400 text-sm">Circuito favorito</span>
-                    <span class="text-white font-semibold text-right">{{ $favoriteTrack ?: '-' }}</span>
+                <div class="grid gap-2 lg:grid-cols-2">
+                    <div class="rounded-lg bg-[#101010] border border-zinc-700/60 px-3 py-2 flex items-center justify-between">
+                        <span class="text-zinc-400 text-sm">Carreras</span>
+                        <span class="text-white font-bold">{{ $yearRaces }}</span>
+                    </div>
+                    <div class="rounded-lg bg-[#101010] border border-zinc-700/60 px-3 py-2 flex items-center justify-between">
+                        <span class="text-zinc-400 text-sm">Victorias</span>
+                        <span class="text-white font-bold">{{ $yearWins }}</span>
+                    </div>
+                    <div class="rounded-lg bg-[#101010] border border-zinc-700/60 px-3 py-2 flex items-center justify-between">
+                        <span class="text-zinc-400 text-sm">% Victorias</span>
+                        <span class="text-[#e8000d] font-bold">{{ number_format($yearWinRate, 1) }}%</span>
+                    </div>
+                    <div class="rounded-lg bg-[#101010] border border-zinc-700/60 px-3 py-2 flex items-center justify-between">
+                        <span class="text-zinc-400 text-sm">Top 5</span>
+                        <span class="text-sky-300 font-bold">{{ number_format($yearTop5Rate, 1) }}%</span>
+                    </div>
+                    <div class="rounded-lg bg-[#101010] border border-zinc-700/60 px-3 py-2 flex items-center justify-between">
+                        <span class="text-zinc-400 text-sm">Vueltas</span>
+                        <span class="text-white font-bold">{{ number_format($yearLaps) }}</span>
+                    </div>
+                    <div class="rounded-lg bg-[#101010] border border-zinc-700/60 px-3 py-2 flex items-center justify-between">
+                        <span class="text-zinc-400 text-sm">Vueltas lideradas</span>
+                        <span class="text-white font-bold">{{ number_format($yearLapsLed) }}</span>
+                    </div>
+                    <div class="rounded-lg bg-[#101010] border border-zinc-700/60 px-3 py-2 flex items-center justify-between">
+                        <span class="text-zinc-400 text-sm">Parrilla promedio</span>
+                        <span class="text-white font-bold">{{ $yearAvgStart !== null ? number_format($yearAvgStart, 1) : '-' }}</span>
+                    </div>
+                    <div class="rounded-lg bg-[#101010] border border-zinc-700/60 px-3 py-2 flex items-center justify-between">
+                        <span class="text-zinc-400 text-sm">Meta promedio</span>
+                        <span class="text-white font-bold">{{ $yearAvgFinish !== null ? number_format($yearAvgFinish, 1) : '-' }}</span>
+                    </div>
+                    <div class="rounded-lg bg-[#101010] border border-zinc-700/60 px-3 py-2 flex items-center justify-between">
+                        <span class="text-zinc-400 text-sm">Poles</span>
+                        <span class="text-white font-bold">{{ number_format((int) data_get($yearStats, 'poles', 0)) }}</span>
+                    </div>
+                    <div class="rounded-lg bg-[#101010] border border-zinc-700/60 px-3 py-2 flex items-center justify-between">
+                        <span class="text-zinc-400 text-sm">Incidentes promedio</span>
+                        <span class="text-white font-bold">{{ data_get($yearStats, 'avg_inc') !== null ? number_format((float) data_get($yearStats, 'avg_inc'), 1) : '-' }}</span>
+                    </div>
                 </div>
             </div>
         </section>
@@ -453,8 +486,3 @@
     </section>
     </div>
 @endsection
-
-
-
-
-
