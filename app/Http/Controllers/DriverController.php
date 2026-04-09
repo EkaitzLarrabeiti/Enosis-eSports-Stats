@@ -6,6 +6,7 @@ use App\Models\User;
 use App\Services\IRacingApiService;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Str;
 use Illuminate\View\View;
 use RuntimeException;
 
@@ -62,7 +63,9 @@ class DriverController extends Controller
                 $career = $this->iracingApiService->getForUser($user, 'data/stats/member_career');
 
                 // Normalizamos carreras para la UI (license_key, deltas de iRating, etc.).
-                $allResults = $this->mapRecentRaces(collect(data_get($recentRaces, 'races', [])));
+                $recentRaceList = collect(data_get($recentRaces, 'races', []));
+                $seriesLogoMap = $this->buildSeriesLogoMap($user, $recentRaceList);
+                $allResults = $this->mapRecentRaces($recentRaceList, $seriesLogoMap);
                 $results = $allResults->take(10)->values();
                 // Construimos estadísticas agregadas con últimos resultados + summary.
                 $stats = $this->buildLiveStats($summary, $results, $memberInfo);
@@ -121,14 +124,16 @@ class DriverController extends Controller
         ];
     }
 
-    private function mapRecentRaces(Collection $races): Collection
+    private function mapRecentRaces(Collection $races, array $seriesLogos = []): Collection
     {
-        return $races->map(function (array $race) {
+        return $races->map(function (array $race) use ($seriesLogos) {
             // Normalizamos el payload de carreras a una forma estable para la UI.
             $startTime = data_get($race, 'session_start_time');
             $raceDate = $startTime ? Carbon::parse($startTime) : null;
             $oldRating = (int) data_get($race, 'oldi_rating', 0);
             $newRating = (int) data_get($race, 'newi_rating', 0);
+            $seriesId = $this->resolveSeriesIdFromRace($race);
+            $trackName = data_get($race, 'track.track_name') ?? data_get($race, 'track_name');
             $categoryId = data_get($race, 'license_category_id')
                 ?? data_get($race, 'category_id')
                 ?? data_get($race, 'license_category');
@@ -137,16 +142,69 @@ class DriverController extends Controller
                 ?? data_get($race, 'license_group')
                 ?? data_get($race, 'group_name')
                 ?? data_get($race, 'category');
+            $strengthOfField = data_get($race, 'strength_of_field')
+                ?? data_get($race, 'sof')
+                ?? data_get($race, 'strength_of_field_rating')
+                ?? data_get($race, 'field_strength')
+                ?? data_get($race, 'field_strength_rating');
+            $seriesLogo = data_get($race, 'series_logo')
+                ?? data_get($race, 'series_logo_url')
+                ?? data_get($race, 'series.logo')
+                ?? data_get($race, 'series.logo_url')
+                ?? data_get($race, 'series.image')
+                ?? data_get($race, 'series_image')
+                ?? data_get($race, 'series_image_url')
+                ?? data_get($race, 'series_logo_small')
+                ?? data_get($race, 'series_logo_medium')
+                ?? data_get($race, 'series_logo_large')
+                ?? data_get($race, 'series.logo_small')
+                ?? data_get($race, 'series.logo_medium')
+                ?? data_get($race, 'series.logo_large')
+                ?? data_get($race, 'series.logo_url_small')
+                ?? data_get($race, 'series.logo_url_medium')
+                ?? data_get($race, 'series.logo_url_large')
+                ?? data_get($race, 'series_logo_small_url')
+                ?? data_get($race, 'series_logo_medium_url')
+                ?? data_get($race, 'series_logo_large_url');
+            $trackLogo = data_get($race, 'track.track_logo')
+                ?? data_get($race, 'track.logo')
+                ?? data_get($race, 'track.logo_url')
+                ?? data_get($race, 'track.image')
+                ?? data_get($race, 'track_image')
+                ?? data_get($race, 'track_logo')
+                ?? data_get($race, 'track_logo_url');
+            if (empty($seriesLogo) && $seriesId && isset($seriesLogos[$seriesId])) {
+                $seriesLogo = $seriesLogos[$seriesId];
+            }
+
+            if (empty($trackLogo) && is_string($trackName) && trim($trackName) !== '') {
+                $trackLogo = $this->buildTrackLogoUrl($trackName);
+            }
+
+            if (config('app.debug') && empty($trackLogo)) {
+                logger()->info('iRacing race track logo missing', [
+                    'track_name' => $trackName,
+                    'track' => data_get($race, 'track'),
+                    'track_logo' => data_get($race, 'track_logo'),
+                    'track_logo_url' => data_get($race, 'track_logo_url'),
+                    'track_image' => data_get($race, 'track_image'),
+                ]);
+            }
+
             $licenseKey = $this->resolveRaceLicenseKey($groupName, $categoryId, $groupId);
 
             return (object) [
                 'series_name' => data_get($race, 'series_name'),
+                'series_logo' => $seriesLogo,
+                'series_id' => $seriesId,
                 'race_date' => $raceDate,
-                'track_name' => data_get($race, 'track.track_name'),
+                'track_name' => $trackName,
+                'track_logo' => $trackLogo,
                 'finish_position' => data_get($race, 'finish_position'),
                 'starting_position' => data_get($race, 'start_position'),
                 'incidents' => data_get($race, 'incidents'),
                 'subsession_id' => data_get($race, 'subsession_id'),
+                'strength_of_field' => $strengthOfField,
                 'license_category_id' => $categoryId,
                 'license_group_id' => $groupId,
                 'license_group_name' => $groupName,
@@ -229,6 +287,20 @@ class DriverController extends Controller
         }
 
         return $ratings;
+    }
+
+    private function resolveSeriesIdFromRace(array $race): ?int
+    {
+        $seriesId = data_get($race, 'series_id')
+            ?? data_get($race, 'seriesid')
+            ?? data_get($race, 'series.series_id')
+            ?? data_get($race, 'series.id');
+
+        if ($seriesId === null || $seriesId === '') {
+            return null;
+        }
+
+        return is_numeric($seriesId) ? (int) $seriesId : null;
     }
 
     private function isEmptyRating(array $rating): bool
@@ -578,6 +650,247 @@ class DriverController extends Controller
         }
 
         return $series;
+    }
+
+    private function buildSeriesLogoMap(User $user, Collection $races): array
+    {
+        $seriesIds = $races
+            ->map(fn (array $race) => $this->resolveSeriesIdFromRace($race))
+            ->filter(fn ($id) => ! empty($id))
+            ->unique()
+            ->values();
+
+        if ($seriesIds->isEmpty()) {
+            return [];
+        }
+
+        $assetMap = $this->extractSeriesLogoMapFromAssets($this->fetchSeriesAssets($user));
+        $logos = [];
+        foreach ($seriesIds as $seriesId) {
+            $seriesId = (int) $seriesId;
+            if (isset($assetMap[$seriesId])) {
+                $logos[$seriesId] = $assetMap[$seriesId];
+                continue;
+            }
+            $logos[$seriesId] = $this->buildSeriesLogoUrl($seriesId);
+        }
+
+        return $logos;
+    }
+
+    private function fetchSeriesAssets(User $user): array
+    {
+        return cache()->remember('iracing.series.assets', 86400, function () use ($user) {
+            try {
+                $payload = $this->iracingApiService->getForUser($user, 'data/series/assets');
+                return is_array($payload) ? $payload : [];
+            } catch (RuntimeException $exception) {
+                report($exception);
+                return [];
+            }
+        });
+    }
+
+    private function extractSeriesLogoMapFromAssets(array $payload): array
+    {
+        $candidates = [
+            data_get($payload, 'series'),
+            data_get($payload, 'data.series'),
+            data_get($payload, 'data'),
+            data_get($payload, 'results'),
+            $payload,
+        ];
+
+        $items = [];
+        foreach ($candidates as $candidate) {
+            if (is_object($candidate)) {
+                $candidate = (array) $candidate;
+            }
+            if (! is_array($candidate) || $candidate === []) {
+                continue;
+            }
+            if ($this->isListArray($candidate)) {
+                $items = $candidate;
+                break;
+            }
+        }
+
+        if ($items === []) {
+            return [];
+        }
+
+        $map = [];
+        $logoKeys = [
+            'series_logo',
+            'series_logo_url',
+            'logo',
+            'logo_url',
+            'logo_small',
+            'logo_medium',
+            'logo_large',
+            'logo_url_small',
+            'logo_url_medium',
+            'logo_url_large',
+            'image',
+            'image_url',
+        ];
+
+        foreach ($items as $item) {
+            if (is_object($item)) {
+                $item = (array) $item;
+            }
+            if (! is_array($item)) {
+                continue;
+            }
+            $seriesId = data_get($item, 'series_id') ?? data_get($item, 'id');
+            if (! is_numeric($seriesId)) {
+                continue;
+            }
+            $logo = $this->extractImageValue($item, $logoKeys);
+            if (! $logo) {
+                continue;
+            }
+            $map[(int) $seriesId] = $this->normalizeImageUrl($logo);
+        }
+
+        return $map;
+    }
+
+    private function buildSeriesLogoUrl(int $seriesId): string
+    {
+        return 'https://images-static.iracing.com/img/logos/series/seriesid_'.$seriesId.'.png';
+    }
+
+    private function buildTrackLogoUrl(string $trackName): string
+    {
+        $slug = $this->normalizeTrackSlug($trackName);
+        return $slug !== ''
+            ? 'https://images-static.iracing.com/img/logos/tracks/'.$slug.'-logo.png'
+            : '';
+    }
+
+    private function normalizeTrackSlug(string $trackName): string
+    {
+        $ascii = Str::ascii($trackName);
+        $normalized = strtolower($ascii);
+        $normalized = preg_replace('/[^a-z0-9]/', '', $normalized);
+        return $normalized ?? '';
+    }
+
+    private function fetchSeriesLogo(User $user, int $seriesId): ?string
+    {
+        if ($seriesId <= 0) {
+            return null;
+        }
+
+        $cacheKey = 'iracing.series.logo.'.(string) $seriesId;
+
+        return cache()->remember($cacheKey, 86400, function () use ($user, $seriesId) {
+            $payload = $this->fetchSeriesPayload($user, $seriesId);
+            if ($payload === []) {
+                return null;
+            }
+
+            $logo = $this->extractSeriesLogoFromPayload($payload);
+            return $logo ? $this->normalizeImageUrl($logo) : null;
+        });
+    }
+
+    private function fetchSeriesPayload(User $user, int $seriesId): array
+    {
+        $endpoints = [
+            ['data/series/get', ['series_id' => $seriesId]],
+            ['data/series/series', ['series_id' => $seriesId]],
+        ];
+
+        foreach ($endpoints as [$endpoint, $query]) {
+            try {
+                $payload = $this->iracingApiService->getForUser($user, $endpoint, $query);
+                if (is_array($payload) && $payload !== []) {
+                    return $payload;
+                }
+            } catch (RuntimeException $exception) {
+                report($exception);
+                continue;
+            }
+        }
+
+        return [];
+    }
+
+    private function extractSeriesLogoFromPayload(array $payload): ?string
+    {
+        $keys = [
+            'series_logo',
+            'series_logo_url',
+            'logo',
+            'logo_url',
+            'logo_small',
+            'logo_medium',
+            'logo_large',
+            'logo_url_small',
+            'logo_url_medium',
+            'logo_url_large',
+            'image',
+            'image_url',
+        ];
+
+        $candidates = [
+            data_get($payload, 'series'),
+            data_get($payload, 'data.series'),
+            data_get($payload, 'data'),
+            data_get($payload, 'series_data'),
+            data_get($payload, 'results'),
+            $payload,
+        ];
+
+        foreach ($candidates as $candidate) {
+            if (is_object($candidate)) {
+                $candidate = (array) $candidate;
+            }
+
+            if (! is_array($candidate) || $candidate === []) {
+                continue;
+            }
+
+            if ($this->isListArray($candidate)) {
+                foreach ($candidate as $item) {
+                    if (is_object($item)) {
+                        $item = (array) $item;
+                    }
+                    if (! is_array($item)) {
+                        continue;
+                    }
+                    $logo = $this->extractImageValue($item, $keys);
+                    if ($logo) {
+                        return $logo;
+                    }
+                }
+                continue;
+            }
+
+            $logo = $this->extractImageValue($candidate, $keys);
+            if ($logo) {
+                return $logo;
+            }
+        }
+
+        return null;
+    }
+
+    private function normalizeImageUrl(string $value): string
+    {
+        $trimmed = trim($value);
+        if ($trimmed === '') {
+            return $trimmed;
+        }
+
+        if (str_starts_with($trimmed, 'http://') || str_starts_with($trimmed, 'https://')) {
+            return $trimmed;
+        }
+
+        $path = ltrim($trimmed, '/');
+        return 'https://images-static.iracing.com/'.$path;
     }
 
     private function buildCareerLicenseStats(array $payload): array

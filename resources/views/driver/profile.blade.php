@@ -242,7 +242,7 @@
                     <p class="text-lg font-bold text-white">{{ $user->name }}</p>
                     <p class="text-xs text-zinc-400">{{ $user->iracing_customer_id ? '#'.$user->iracing_customer_id : 'No hay id de cliente' }}</p>
                 </div>
-                <div class="grid grid-cols-2 gap-2 text-xs">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
                     <div class="rounded-lg border {{ $sportsCarBorder }} bg-zinc-900/80 p-3" style="{{ $sportsCarHex ? 'border-color: '.$sportsCarHex.';' : '' }}">
                         <p class="text-zinc-300">Sports Car</p>
                         <div class="mt-1.5 flex items-center justify-center sm:justify-start gap-2">
@@ -366,7 +366,7 @@
                                     <img src="{{ $yearFavoriteCarImage }}" alt="{{ $yearFavoriteCar ?: 'Coche favorito' }}" class="h-full w-full object-contain" loading="lazy">
                                 @endif
                             </div>
-                            <div>
+                            <div class="pl-2">
                                 <p class="text-xs uppercase tracking-wide text-zinc-400">Coche favorito</p>
                                 <p class="text-lg font-bold text-white">{{ $yearFavoriteCar ?: '-' }}</p>
                             </div>
@@ -379,7 +379,7 @@
                                     <img src="{{ $yearFavoriteTrackImage }}" alt="{{ $yearFavoriteTrack ?: 'Circuito favorito' }}" class="h-full w-full object-contain" loading="lazy">
                                 @endif
                             </div>
-                            <div>
+                            <div class="pl-2">
                                 <p class="text-xs uppercase tracking-wide text-zinc-400">Circuito favorito</p>
                                 <p class="text-lg font-bold text-white">{{ $yearFavoriteTrack ?: '-' }}</p>
                             </div>
@@ -387,43 +387,43 @@
                     </div>
                 </div>
                 <div class="grid gap-2 lg:grid-cols-2">
-                    <div class="rounded-lg bg-[#101010] border border-zinc-700/60 px-3 py-2 flex items-center justify-between">
+                    <div class="rounded-lg bg-[#101010] border border-zinc-700/60 px-5 py-2 flex items-center justify-between">
                         <span class="text-zinc-400 text-sm">Carreras</span>
                         <span class="text-white font-bold">{{ $yearRaces }}</span>
                     </div>
-                    <div class="rounded-lg bg-[#101010] border border-zinc-700/60 px-3 py-2 flex items-center justify-between">
+                    <div class="rounded-lg bg-[#101010] border border-zinc-700/60 px-5 py-2 flex items-center justify-between">
                         <span class="text-zinc-400 text-sm">Victorias</span>
                         <span class="text-white font-bold">{{ $yearWins }}</span>
                     </div>
-                    <div class="rounded-lg bg-[#101010] border border-zinc-700/60 px-3 py-2 flex items-center justify-between">
+                    <div class="rounded-lg bg-[#101010] border border-zinc-700/60 px-5 py-2 flex items-center justify-between">
                         <span class="text-zinc-400 text-sm">% Victorias</span>
                         <span class="text-[#e8000d] font-bold">{{ number_format($yearWinRate, 1) }}%</span>
                     </div>
-                    <div class="rounded-lg bg-[#101010] border border-zinc-700/60 px-3 py-2 flex items-center justify-between">
+                    <div class="rounded-lg bg-[#101010] border border-zinc-700/60 px-5 py-2 flex items-center justify-between">
                         <span class="text-zinc-400 text-sm">Top 5</span>
                         <span class="text-sky-300 font-bold">{{ number_format($yearTop5Rate, 1) }}%</span>
                     </div>
-                    <div class="rounded-lg bg-[#101010] border border-zinc-700/60 px-3 py-2 flex items-center justify-between">
+                    <div class="rounded-lg bg-[#101010] border border-zinc-700/60 px-5 py-2 flex items-center justify-between">
                         <span class="text-zinc-400 text-sm">Vueltas</span>
                         <span class="text-white font-bold">{{ number_format($yearLaps) }}</span>
                     </div>
-                    <div class="rounded-lg bg-[#101010] border border-zinc-700/60 px-3 py-2 flex items-center justify-between">
+                    <div class="rounded-lg bg-[#101010] border border-zinc-700/60 px-5 py-2 flex items-center justify-between">
                         <span class="text-zinc-400 text-sm">Vueltas lideradas</span>
                         <span class="text-white font-bold">{{ number_format($yearLapsLed) }}</span>
                     </div>
-                    <div class="rounded-lg bg-[#101010] border border-zinc-700/60 px-3 py-2 flex items-center justify-between">
+                    <div class="rounded-lg bg-[#101010] border border-zinc-700/60 px-5 py-2 flex items-center justify-between">
                         <span class="text-zinc-400 text-sm">Parrilla promedio</span>
                         <span class="text-white font-bold">{{ $yearAvgStart !== null ? number_format($yearAvgStart, 1) : '-' }}</span>
                     </div>
-                    <div class="rounded-lg bg-[#101010] border border-zinc-700/60 px-3 py-2 flex items-center justify-between">
+                    <div class="rounded-lg bg-[#101010] border border-zinc-700/60 px-5 py-2 flex items-center justify-between">
                         <span class="text-zinc-400 text-sm">Meta promedio</span>
                         <span class="text-white font-bold">{{ $yearAvgFinish !== null ? number_format($yearAvgFinish, 1) : '-' }}</span>
                     </div>
-                    <div class="rounded-lg bg-[#101010] border border-zinc-700/60 px-3 py-2 flex items-center justify-between">
+                    <div class="rounded-lg bg-[#101010] border border-zinc-700/60 px-5 py-2 flex items-center justify-between">
                         <span class="text-zinc-400 text-sm">Poles</span>
                         <span class="text-white font-bold">{{ number_format((int) data_get($yearStats, 'poles', 0)) }}</span>
                     </div>
-                    <div class="rounded-lg bg-[#101010] border border-zinc-700/60 px-3 py-2 flex items-center justify-between">
+                    <div class="rounded-lg bg-[#101010] border border-zinc-700/60 px-5 py-2 flex items-center justify-between">
                         <span class="text-zinc-400 text-sm">Incidentes promedio</span>
                         <span class="text-white font-bold">{{ data_get($yearStats, 'avg_inc') !== null ? number_format((float) data_get($yearStats, 'avg_inc'), 1) : '-' }}</span>
                     </div>
@@ -440,21 +440,38 @@
                         $iDelta = (int) ($race->irating_change ?? 0);
                     @endphp
                     <article class="rounded-xl border border-zinc-600/70 bg-[#222222]/70">
-                        <div class="flex items-start justify-between gap-3 px-3 py-3 border-b border-zinc-700/60">
-                            <div>
-                                <p class="text-lg font-bold text-white">{{ $race->series_name ?? 'iRacing Series' }}</p>
+                        <div class="flex items-stretch gap-3 px-3 py-3 border-b border-zinc-700/60">
+                            <div class="flex-1 min-w-0 grid grid-cols-1 gap-2 md:grid-cols-2">
+                                <div class="flex items-center gap-2">
+                                    @if(!empty($race->series_logo))
+                                        <img src="{{ $race->series_logo }}" alt="{{ $race->series_name ?? 'Serie' }}" class="h-12 w-12 md:h-20 md:w-20 lg:h-32 lg:w-32 object-contain" loading="lazy">
+                                    @endif
+                                    <p class="text-lg font-bold text-white">{{ $race->series_name ?? 'iRacing Series' }}</p>
+                                </div>
+                                <div class="flex items-center gap-4">
+                                    @if(!empty($race->track_logo))
+                                        <img src="{{ $race->track_logo }}" alt="{{ $race->track_name ?? 'Circuito' }}" class="h-12 w-12 md:h-20 md:w-20 lg:h-32 lg:w-32 object-contain" loading="lazy">
+                                    @endif
+                                    <p class="text-sm text-zinc-200">{{ $race->track_name ?? 'Unknown track' }}</p>
+                                </div>
+                            </div>
+                            <div class="flex flex-col items-end justify-between gap-1 shrink-0">
+                                <div class="rounded bg-zinc-800/50 px-3 py-1.5 text-lg font-black text-white">
+                                    P{{ $race->finish_position ?? '-' }}
+                                </div>
                                 <p class="text-sm text-zinc-300">{{ optional($race->race_date)->format('M d, Y') ?: '-' }}</p>
-                                <p class="mt-1 text-sm text-zinc-200">{{ $race->track_name ?? 'Unknown track' }}</p>
                             </div>
-                            <div class="rounded-lg border border-zinc-500 bg-zinc-800/50 px-3 py-1.5 text-lg font-black text-white">
-                                P{{ $race->finish_position ?? '-' }}
-                            </div>
+
                         </div>
-                        <div class="grid gap-2 p-3 md:grid-cols-4">
+                        <div class="grid gap-2 p-3 grid-cols-2 md:grid-cols-4">
                             <div class="rounded-md bg-zinc-700/50 px-2 py-2">
                                 <p class="text-xs text-zinc-300">iRating</p>
                                 <p class="font-bold text-white">
-                                    {{ $currentIRating > 0 ? number_format($currentIRating) : '-' }}
+                                    {{
+                                        isset($race->newi_rating) && (int) $race->newi_rating > 0
+                                            ? number_format((int) $race->newi_rating)
+                                            : 'Rookie'
+                                    }}
                                     <span class="{{ $iDelta >= 0 ? 'text-emerald-400' : 'text-red-400' }}">
                                         {{ $iDelta >= 0 ? '+' : '' }}{{ $iDelta }}
                                     </span>
@@ -462,15 +479,17 @@
                             </div>
                             <div class="rounded-md bg-zinc-700/50 px-2 py-2">
                                 <p class="text-xs text-zinc-300">Incidentes</p>
-                                <p class="font-bold text-white">{{ $race->incidents ?? '-' }}</p>
+                                <p class="font-bold text-white">{{ $race->incidents ?? '-' }}x</p>
                             </div>
                             <div class="rounded-md bg-zinc-700/50 px-2 py-2">
-                                <p class="text-xs text-zinc-300">Parrilla / Meta</p>
-                                <p class="font-bold text-white">P{{ $race->starting_position ?? '-' }} / P{{ $race->finish_position ?? '-' }}</p>
+                                <p class="text-xs text-zinc-300">Parrilla</p>
+                                <p class="font-bold text-white">P{{ $race->starting_position ?? '-' }}</p>
                             </div>
                             <div class="rounded-md bg-zinc-700/50 px-2 py-2">
-                                <p class="text-xs text-zinc-300">Subsession</p>
-                                <p class="font-bold text-white">{{ $race->subsession_id ?? '-' }}</p>
+                                <p class="text-xs text-zinc-300">SoF</p>
+                                <p class="font-bold text-white">
+                                    {{ isset($race->strength_of_field) && is_numeric($race->strength_of_field) ? number_format((float) $race->strength_of_field, 0) : ($race->strength_of_field ?? '-') }}
+                                </p>
                             </div>
                         </div>
                     </article>
